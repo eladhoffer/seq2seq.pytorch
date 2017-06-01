@@ -6,6 +6,9 @@ import string
 from random import randrange
 from config import *
 
+
+src = "/home/ehoffer/Datasets/Language/news_commentary_v10/news-commentary-v10.fr-en.en"
+target = "/home/ehoffer/Datasets/Language/news_commentary_v10/news-commentary-v10.fr-en.fr"
 def get_chars(input_file):
     f = open(input_file).read()
     chars = set(f)
