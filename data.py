@@ -38,21 +38,31 @@ def list_line_locations(filename):
 
 class LinedTextDataset(Dataset):
 
-    def __init__(self, filename, transform=None):
+    def __init__(self, filename, transform=None, load_mem=False):
         self.filename = filename
-        self.offsets = list_line_locations(filename)
+        self.load_mem = load_mem
         self.transform = transform
+        if self.load_mem:
+            self.items = []
+            with open(self.filename, encoding="utf-8") as f:
+                for line in f:
+                    self.items.append(line)
+        else:
+            self.items = list_line_locations(filename)
 
     def __getitem__(self, index):
-        with open(self.filename, encoding="utf-8") as f:
-            f.seek(self.offsets[index])
-            item = f.readline()
+        if self.load_mem:
+            item = self.items[index]
+        else:
+            with open(self.filename, encoding="utf-8") as f:
+                f.seek(self.items[index])
+                item = f.readline()
         if self.transform is not None:
             item = self.transform(item)
         return item
 
     def __len__(self):
-        return len(self.offsets)
+        return len(self.items)
 
 
 class AlignedDatasets(Dataset):

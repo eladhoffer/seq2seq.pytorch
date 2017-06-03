@@ -16,6 +16,8 @@ class Tokenizer(object):
     def __init__(self, max_length=500, vocab_file=None, vocab_threshold=2):
         self.max_length = 500
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
+        self.__word2idx = {}
+        self.vocab = []
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
 
@@ -28,12 +30,13 @@ class Tokenizer(object):
         else:
             return self.vocab[idx - len(self.special_tokens)][0]
 
+    def update_word2idx(self):
+        self.__word2idx = {
+            word[0]: idx + len(self.special_tokens) for idx, word in enumerate(self.vocab)}
+        for i, tok in enumerate(self.special_tokens):
+            self.__word2idx[tok] = i
+
     def word2idx(self, word):
-        if not hasattr(self, '__word2idx'):
-            self.__word2idx = {
-                word[0]: idx + len(self.special_tokens) for idx, word in enumerate(self.vocab)}
-            for i, tok in enumerate(self.special_tokens):
-                self.__word2idx[tok] = i
         return self.__word2idx.get(word, UNK)
 
     def segment(self, line):
@@ -49,6 +52,7 @@ class Tokenizer(object):
                     for word in self.segment(line):
                         vocab[word] += 1
         self.vocab = vocab.most_common(limit)
+        self.update_word2idx()
 
     def save_vocab(self, vocab_filename):
         if self.vocab is not None:
@@ -63,6 +67,7 @@ class Tokenizer(object):
                 word, count = line.strip().split()
                 vocab[word] = int(count)
         self.vocab = vocab.most_common(limit)
+        self.update_word2idx()
 
     def tokenize(self, line, append_bos=False, append_eos=False):
         """tokenize a line"""
