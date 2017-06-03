@@ -1,12 +1,11 @@
 from __future__ import unicode_literals
-
 import os
-import torch
 import string
 import codecs
 import sys
 from collections import Counter
-import pdb
+import torch
+from config import *
 sys.path.append("./subword-nmt")
 import learn_bpe
 import apply_bpe
@@ -15,22 +14,19 @@ import apply_bpe
 class Tokenizer(object):
 
     def __init__(self, max_length=500, vocab_file=None, vocab_threshold=2):
-        self.UNK_TOKEN = '<unk>'
-        self.PAD_TOKEN = '<pad>'
-        self.BOS_TOKEN = '<s>'
-        self.EOS_TOKEN = '<\s>'
-        self.UNK, self.PAD, self.BOS, self.EOS = [0, 1, 2, 3]
         self.max_length = 500
-        self.special_tokens = [self.PAD_TOKEN,
-                               self.UNK_TOKEN, self.BOS_TOKEN, self.EOS_TOKEN]
+        self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
+
+    def vocab_size(self):
+        return len(self.vocab) + len(self.special_tokens)
 
     def idx2word(self, idx):
         if idx < len(self.special_tokens):
             return self.special_tokens[idx]
         else:
-            return self.vocab[idx + len(self.special_tokens)]
+            return self.vocab[idx - len(self.special_tokens)][0]
 
     def word2idx(self, word):
         if not hasattr(self, '__word2idx'):
@@ -38,7 +34,7 @@ class Tokenizer(object):
                 word[0]: idx + len(self.special_tokens) for idx, word in enumerate(self.vocab)}
             for i, tok in enumerate(self.special_tokens):
                 self.__word2idx[tok] = i
-        return self.__word2idx.get(w, self.UNK)
+        return self.__word2idx.get(word, UNK)
 
     def segment(self, line):
         """segments a line to tokenizable items"""
@@ -68,22 +64,25 @@ class Tokenizer(object):
                 vocab[word] = int(count)
         self.vocab = vocab.most_common(limit)
 
-    def tokenize(self, line):
+    def tokenize(self, line, append_bos=False, append_eos=False):
         """tokenize a line"""
         inputs = self.segment(line)
+        targets = [BOS] if append_bos else []
         for w in inputs:
             targets.append(self.word2idx(w))
+        if append_eos:
+            targets.append(EOS)
         return torch.LongTensor(targets)
 
     def detokenize(self, inputs, delimeter=' '):
         return delimeter.join([self.idx2word(idx) for idx in inputs])
 
 
-class BPETokentizer(Tokenizer):
+class BPETokenizer(Tokenizer):
 
     def __init__(self, codes_file, vocab_file,
                  num_symbols=10000, min_frequency=2, seperator='@@'):
-        super(BPETokentizer, self).__init__(vocab_file=vocab_file)
+        super(BPETokenizer, self).__init__(vocab_file=vocab_file)
         self.num_symbols = num_symbols
         self.min_frequency = min_frequency
         self.seperator = seperator
@@ -118,51 +117,6 @@ class BPETokentizer(Tokenizer):
                            self.min_frequency, False, is_dict=True)
         self.set_bpe(self.codes_file)
 
-
-if __name__ == '__main__':
-    #
-    # # python 2/3 compatibility
-    # if sys.version_info < (3, 0):
-    #     sys.stderr = codecs.getwriter('UTF-8')(sys.stderr)
-    #     sys.stdout = codecs.getwriter('UTF-8')(sys.stdout)
-    #     sys.stdin = codecs.getreader('UTF-8')(sys.stdin)
-    # else:
-    #     sys.stderr = codecs.getwriter('UTF-8')(sys.stderr.buffer)
-    #     sys.stdout = codecs.getwriter('UTF-8')(sys.stdout.buffer)
-    #     sys.stdin = codecs.getreader('UTF-8')(sys.stdin.buffer)
-
-    # prefix = "/home/ehoffer/Datasets/Language/news_commentary_v10/news-commentary-v10.fr-en"
-    # langs = ['en', 'fr']
-    prefix = "./data/OpenSubtitles2016.en-he"
-    langs = ['en', 'he']
-    num_symbols = 32000
-    shared_vocab = True
-    input_files = ['{prefix}.{lang}'.format(
-        prefix=prefix, lang=l) for l in langs]
-    if not shared_vocab:
-        code_files = ['{prefix}.{lang}.codes_{num_symbols}'.format(
-            prefix=prefix, lang=l, num_symbols=num_symbols) for l in langs]
-        vocabs = ['{prefix}.{lang}.vocab{num_symbols}'.format(
-            prefix=prefix, lang=l, num_symbols=num_symbols) for l in langs]
-    else:
-        code_files = '{prefix}.shared_codes_{num_symbols}_{langs}'.format(
-            prefix=prefix, langs='_'.join(langs), num_symbols=num_symbols)
-        code_files = [code_files] * len(langs)
-        vocabs = '{prefix}.shared_vocab{num_symbols}_{langs}'.format(
-            prefix=prefix, langs='_'.join(langs), num_symbols=num_symbols)
-        vocabs = [vocabs] * len(langs)
-
-    tokenizers = []
-    for i, t in enumerate(langs):
-        tokz = BPETokentizer(code_files[i], vocab_file=vocabs[
-                             i], num_symbols=num_symbols)
-        if shared_vocab:
-            files = input_files
-        else:
-            files = input_files[i]
-        if not hasattr(tokz, 'bpe'):
-            tokz.learn_bpe(files)
-        if not hasattr(tokz, 'vocab'):
-            tokz.get_vocab(files)
-            tokz.save_vocab(vocabs[i])
-        tokenizers.append(tokz)
+    def detokenize(self, inputs, delimeter=' '):
+        detok_string = super(BPETokenizer, self).detokenize(inputs, delimeter)
+        return detok_string.replace(self.seperator + ' ', '')

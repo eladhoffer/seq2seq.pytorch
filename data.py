@@ -8,139 +8,151 @@ from random import randrange
 from config import *
 import codecs
 import sys
-from subword-nmt import learn_bpe, apply_bpe
+from tokenizer import BPETokenizer
+
+class Compose(object):
+    """Composes several transforms together.
+
+    Args:
+        transforms (List[Transform]): list of transforms to compose.
+    """
+
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, x):
+        for t in self.transforms:
+            x = t(x)
+        return x
 
 
 def list_line_locations(filename):
     line_offset = []
     offset = 0
-    with open(filename) as f:
+    with open(filename, "rb") as f:
         for line in f:
             line_offset.append(offset)
             offset += len(line)
     return line_offset
 
-class TokenizedDataset(Dataset):
-    def __init__(self, dataset, tokenizer):
-        self.tokenizer = tokenizer
-        self.dataset = dataset
-
-    def __getitem__(self, index):
-        return self.tokenizer.tokenize(self.dataset[index])
-
-    def __len__(self):
-        return len(self.dataset)
 
 class LinedTextDataset(Dataset):
-    def __init__(self, filename):
+
+    def __init__(self, filename, transform=None):
         self.filename = filename
         self.offsets = list_line_locations(filename)
+        self.transform = transform
 
     def __getitem__(self, index):
-        with open(self.filename) as f:
+        with open(self.filename, encoding="utf-8") as f:
             f.seek(self.offsets[index])
             item = f.readline()
+        if self.transform is not None:
+            item = self.transform(item)
         return item
 
     def __len__(self):
         return len(self.offsets)
 
+
 class AlignedDatasets(Dataset):
+
     def __init__(self, datasets):
         self.datasets = datasets
 
     def __getitem__(self, index):
-        items =[]
-        for i, dataset in enumerate(self.datasets):
+        items = []
+        for dataset in self.datasets:
             items.append(dataset[index])
-        # if all([torch.is_tensor(item) for item in items]):
-            # items = torch.stack(items, )
-        return items
+        return tuple(items)
 
     def __len__(self):
         return len(self.datasets[0])
 
+class NarrowDataset(Dataset):
+
+    def __init__(self, dataset, first_item=0, last_item=None):
+        self.dataset = dataset
+        last_item = last_item or len(self.dataset) - 1
+        self.first_item = min(max(first_item, 0), len(self.dataset)-1)
+        self.last_item = min(max(last_item, 0), len(self.dataset)-1)
+
+    def __getitem__(self, index):
+        return self.dataset[index + self.first_item]
+
+    def __len__(self):
+        return self.last_item - self.first_item + 1
 
 
-check = AlignedDatasets([LinedTextDataset(d) for d in [src, target]])
-# def get_chars(input_file):
-#     f = open(input_file).read()
-#     chars = set(f)
-#     return list(chars)
-#
-# def simple_tokenize(captions):
-#     processed = []
-#     for j, s in enumerate(captions):
-#         txt = str(s).lower().translate(
-#             string.punctuation).strip().split()
-#         processed.append(txt)
-#     return processed
-#
-#
-# def build_vocab(annFile=__TRAIN_PATH['annFile'], num_words=10000):
-#     # count up the number of words
-#     counts = {}
-#     coco = COCO(annFile)
-#     ids = coco.imgs.keys()
-#     for img_id in ids:
-#         ann_ids = coco.getAnnIds(imgIds=img_id)
-#         anns = coco.loadAnns(ann_ids)
-#         captions = simple_tokenize([ann['caption'] for ann in anns])
-#         for txt in captions:
-#             for w in txt:
-#                 counts[w] = counts.get(w, 0) + 1
-#     cw = sorted([(count, w) for w, count in counts.items()], reverse=True)
-#
-#     vocab = [w for (_, w) in cw[:num_words]]
-#     vocab = [__PAD_TOKEN] + vocab + [__UNK_TOKEN, __EOS_TOKEN]
-#
-#     return vocab
-#
-#
-# def create_target(vocab, rnd_caption=True):
-#     word2idx = {word: idx for idx, word in enumerate(vocab)}
-#     unk = word2idx[__UNK_TOKEN]
-#
-#     def get_caption(captions):
-#         captions = simple_tokenize(captions)
-#         if rnd_caption:
-#             idx = randrange(len(captions))
-#         else:
-#             idx = 0
-#         caption = captions[idx]
-#         targets = []
-#         for w in caption:
-#             targets.append(word2idx.get(w, unk))
-#         return torch.Tensor(targets)
-#     return get_caption
-#
-#
-# def create_batches(vocab, max_length=50):
-#     padding = vocab.index(__PAD_TOKEN)
-#     eos = vocab.index(__EOS_TOKEN)
-#
-#     def collate(seq):
-#         seq.sort(key=lambda p: len(p[1]), reverse=True)
-#         imgs, caps = zip(*seq)
-#         imgs = torch.cat([img.unsqueeze(0) for img in imgs], 0)
-#         lengths = [min(len(c) + 1, max_length) for c in caps]
-#         batch_length = max(lengths)
-#         cap_tensor = torch.LongTensor(batch_length, len(caps)).fill_(padding)
-#         for i, c in enumerate(caps):
-#             end_cap = lengths[i] - 1
-#             if end_cap < batch_length:
-#                 cap_tensor[end_cap, i] = eos
-#
-#             cap_tensor[:end_cap, i].copy_(c[:end_cap])
-#
-#         return (imgs, (cap_tensor, lengths))
-#     return collate
-#
-#
-# def get_iterator(data, batch_size=32, max_length=30, shuffle=True, num_workers=4, pin_memory=True):
-#     cap, vocab = data
-#     return torch.utils.data.DataLoader(
-#         cap,
-#         batch_size=batch_size, shuffle=shuffle,
-#         collate_fn=create_batches(vocab, max_length),
-#         num_workers=num_workers, pin_memory=pin_memory)
+def create_padded_batch(max_length=100):
+    def collate(seqs):
+        if not torch.is_tensor(seqs[0]):
+            return tuple([collate(s) for s in zip(*seqs)])
+        lengths = [min(len(s), max_length) for s in seqs]
+        batch_length = max(lengths)
+        seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(PAD)
+        for i, s in enumerate(seqs):
+            end_seq = lengths[i]
+            seq_tensor[:end_seq, i].copy_(s[:end_seq])
+        return (seq_tensor, lengths)
+    return collate
+
+def create_sorted_batches(max_length=100):
+    def collate(seqs):
+        seqs.sort(key=lambda p: len(p), reverse=True)
+        lengths = [min(len(s), max_length) for s in seqs]
+        batch_length = max(lengths)
+        seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(PAD)
+        for i, s in enumerate(seqs):
+            end_seq = lengths[i]
+            seq_tensor[:end_seq, i].copy_(s[:end_seq])
+
+        return (seq_tensor, lengths)
+    return collate
+
+
+
+def get_dataset_bpe(prefix="./data/OpenSubtitles2016.en-he",
+                    langs=['en', 'he'],
+                    num_symbols=32000,
+                    shared_vocab=True,
+                    append_bos=None, append_eos=None):
+    append_bos = append_bos or [True] * len(langs)
+    append_eos = append_eos or [True] * len(langs)
+    input_files = ['{prefix}.{lang}'.format(
+        prefix=prefix, lang=l) for l in langs]
+    if not shared_vocab:
+        code_files = ['{prefix}.{lang}.codes_{num_symbols}'.format(
+            prefix=prefix, lang=l, num_symbols=num_symbols) for l in langs]
+        vocabs = ['{prefix}.{lang}.vocab{num_symbols}'.format(
+            prefix=prefix, lang=l, num_symbols=num_symbols) for l in langs]
+    else:
+        code_files = '{prefix}.shared_codes_{num_symbols}_{langs}'.format(
+            prefix=prefix, langs='_'.join(langs), num_symbols=num_symbols)
+        code_files = [code_files] * len(langs)
+        vocabs = '{prefix}.shared_vocab{num_symbols}_{langs}'.format(
+            prefix=prefix, langs='_'.join(langs), num_symbols=num_symbols)
+        vocabs = [vocabs] * len(langs)
+
+    tokenizers = []
+    for i, t in enumerate(langs):
+        tokz = BPETokenizer(code_files[i], vocab_file=vocabs[
+                             i], num_symbols=num_symbols)
+        if shared_vocab:
+            files = input_files
+        else:
+            files = input_files[i]
+        if not hasattr(tokz, 'bpe'):
+            tokz.learn_bpe(files)
+        if not hasattr(tokz, 'vocab'):
+            tokz.get_vocab(files)
+            tokz.save_vocab(vocabs[i])
+        tokenizers.append(tokz)
+
+    datasets = []
+    for i in range(len(input_files)):
+        transform = lambda t: tokenizers[i].tokenize(
+            t, append_bos=append_bos[i], append_eos=append_eos[i])
+        datasets.append(LinedTextDataset(
+            input_files[i], transform=transform))
+    return datasets, tokenizers
