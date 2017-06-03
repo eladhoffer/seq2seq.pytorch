@@ -114,11 +114,17 @@ def main():
     train_src_data = NarrowDataset(src_data, 0, size_train - 1)
     val_src_data = NarrowDataset(src_data, size_train, None)
     train_target_data = NarrowDataset(target_data, 0, size_train - 1)
-    val_target_data = NarrowDataset(
-        target_data, size_train, None)
+    val_target_data = NarrowDataset(target_data, size_train, None)
+    # train_src_data = NarrowDataset(src_data, 0, 10000)  # size_train - 1)
+    # val_src_data = NarrowDataset(src_data, 2000, 2100)  # size_train, None)
+    # train_target_data = NarrowDataset(target_data, 0, 10000)  # size_train - 1)
+    # val_target_data = NarrowDataset(
+    #     target_data, 2000, 2100)  # size_train, None)
     # create model
-    encoder = RecurentEncoder(src_tok.vocab_size(), hidden_size=128, num_layers=2)
-    decoder = RecurentDecoder(target_tok.vocab_size(), hidden_size=128, num_layers=2)
+    encoder = RecurentEncoder(src_tok.vocab_size(),
+                              hidden_size=128, num_layers=2)
+    decoder = RecurentDecoder(target_tok.vocab_size(),
+                              hidden_size=128, num_layers=2)
     model = Seq2Seq(encoder=encoder, decoder=decoder)
     num_parameters = sum([l.nelement() for l in model.parameters()])
     logging.info("number of parameters: %d", num_parameters)
@@ -131,10 +137,10 @@ def main():
                                              batch_size=args.batch_size,
                                              collate_fn=create_padded_batch(),
                                              num_workers=args.workers)
-    regime = getattr(model, 'regime', {0: {'optimizer': args.optimizer,
-                                           'lr': args.lr,
-                                           'momentum': args.momentum,
-                                           'weight_decay': args.weight_decay}})
+    regime = {e: {'optimizer': args.optimizer,
+                  'lr': args.lr * (e ** 0.5),
+                  'momentum': args.momentum,
+                  'weight_decay': args.weight_decay} for e in range(10)}
     # define loss function (criterion) and optimizer
     loss_weight = torch.ones(target_tok.vocab_size())
     loss_weight[PAD] = 0
@@ -155,6 +161,22 @@ def main():
         # evaluate on validation set
         val_loss, val_perplexity = validate(
             val_loader, model, criterion, epoch)
+
+        model.eval()
+        for i in range(10):
+            src_seq = Variable(val_src_data[i].cuda(), volatile=True)
+            target_seq = Variable(val_target_data[i].cuda(), volatile=True)
+            pred_seq = model(src_seq.unsqueeze(1), target_seq[:-1].unsqueeze(1))
+            _, pred_seq = pred_seq.max(2)
+            pred_seq = pred_seq.view(-1)
+            logging.info('\n Example {0}:'
+                         '\n \t Source: {src}'
+                         '\n \t Target: {target}'
+                         '\n \t Prediction: {pred}'
+                         .format(i,
+                                 src=src_tok.detokenize(src_seq.data[1:-1]),
+                                 target=target_tok.detokenize(target_seq[1:-1].data)[::-1],
+                                 pred=target_tok.detokenize(pred_seq.data[:-1])[::-1]))
 
         # remember best prec@1 and save checkpoint
         is_best = val_perplexity < best_perplexity
@@ -238,6 +260,12 @@ def forward(data_loader, model, criterion, epoch=0, training=True, optimizer=Non
                              data_time=data_time, loss=losses, perplexity=perplexity))
 
     return losses.avg, perplexity.avg
+
+
+def translate(model, text, tokenize, detokenize):
+    x = tokenize(text)
+    y = model(x)
+    return detokenize(y)
 
 
 def train(data_loader, model, criterion, epoch, optimizer):

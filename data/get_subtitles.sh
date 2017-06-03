@@ -1,7 +1,7 @@
-SITE="http://opus.lingfil.uu.se/download.php?f=OpenSubtitles2016/"
+lang1=${1:-"en"}
+lang2=${2:-"he"}
 
-lang1="en"
-lang2="he"
+SITE="http://opus.lingfil.uu.se/download.php?f=OpenSubtitles2016/"
 
 OSUB_PREFIX="OpenSubtitles2016.${lang1}-${lang2}"
 TMX_FILE="${lang1}-${lang2}.tmx"
