@@ -82,6 +82,47 @@ def main():
     else:
         args.gpus = None
 
+
+    # Data loading code
+    [src_data, target_data], [src_tok, target_tok] = get_dataset_bpe(
+        langs=['en', 'he'])
+    size_train = int(len(src_data) * 0.9)
+    train_src_data = NarrowDataset(src_data, 0, size_train - 1)
+    val_src_data = NarrowDataset(src_data, size_train, None)
+    train_target_data = NarrowDataset(target_data, 0, size_train - 1)
+    val_target_data = NarrowDataset(target_data, size_train, None)
+    # train_src_data = NarrowDataset(src_data, 0, 10000)  # size_train - 1)
+    # val_src_data = NarrowDataset(src_data, 2000, 2100)  # size_train, None)
+    # train_target_data = NarrowDataset(target_data, 0, 10000)  # size_train - 1)
+    # val_target_data = NarrowDataset(
+    #     target_data, 2000, 2100)  # size_train, None)
+    # create model
+    encoder = RecurentEncoder(src_tok.vocab_size(),
+                              hidden_size=128, num_layers=1, bidirectional=True)
+    decoder = RecurentDecoder(target_tok.vocab_size(),
+                              hidden_size=128, num_layers=2)
+    model = Seq2Seq(encoder=encoder, decoder=decoder)
+    num_parameters = sum([l.nelement() for l in model.parameters()])
+    logging.info("number of parameters: %d", num_parameters)
+
+    train_loader = torch.utils.data.DataLoader(AlignedDatasets([train_src_data, train_target_data]),
+                                               batch_size=args.batch_size,
+                                               collate_fn=create_padded_batch(),
+                                               shuffle=True, num_workers=args.workers)
+    val_loader = torch.utils.data.DataLoader(AlignedDatasets([val_src_data, val_target_data]),
+                                             batch_size=args.batch_size,
+                                             collate_fn=create_padded_batch(),
+                                             num_workers=args.workers)
+    regime = {e: {'optimizer': args.optimizer,
+                  'lr': args.lr * (0.1 ** e),
+                  'momentum': args.momentum,
+                  'weight_decay': args.weight_decay} for e in range(10)}
+    # define loss function (criterion) and optimizer
+    loss_weight = torch.ones(target_tok.vocab_size())
+    loss_weight[PAD] = 0
+    criterion = nn.CrossEntropyLoss(weight=loss_weight, size_average=False)
+    criterion.type(args.type)
+    model.type(args.type)
     # optionally resume from a checkpoint
     if args.evaluate:
         if not os.path.isfile(args.evaluate):
@@ -99,7 +140,7 @@ def main():
         if os.path.isfile(checkpoint_file):
             logging.info("loading checkpoint '%s'", args.resume)
             checkpoint = torch.load(checkpoint_file)
-            args.start_epoch = checkpoint['epoch'] - 1
+            args.start_epoch = checkpoint['epoch']
             best_perplexity = checkpoint['best_perplexity']
             model.load_state_dict(checkpoint['state_dict'])
             logging.info("loaded checkpoint '%s' (epoch %s)",
@@ -107,46 +148,6 @@ def main():
         else:
             logging.error("no checkpoint found at '%s'", args.resume)
 
-    # Data loading code
-    [src_data, target_data], [src_tok, target_tok] = get_dataset_bpe(
-        langs=['en', 'he'])
-    size_train = int(len(src_data) * 0.9)
-    train_src_data = NarrowDataset(src_data, 0, size_train - 1)
-    val_src_data = NarrowDataset(src_data, size_train, None)
-    train_target_data = NarrowDataset(target_data, 0, size_train - 1)
-    val_target_data = NarrowDataset(target_data, size_train, None)
-    # train_src_data = NarrowDataset(src_data, 0, 10000)  # size_train - 1)
-    # val_src_data = NarrowDataset(src_data, 2000, 2100)  # size_train, None)
-    # train_target_data = NarrowDataset(target_data, 0, 10000)  # size_train - 1)
-    # val_target_data = NarrowDataset(
-    #     target_data, 2000, 2100)  # size_train, None)
-    # create model
-    encoder = RecurentEncoder(src_tok.vocab_size(),
-                              hidden_size=128, num_layers=2)
-    decoder = RecurentDecoder(target_tok.vocab_size(),
-                              hidden_size=128, num_layers=2)
-    model = Seq2Seq(encoder=encoder, decoder=decoder)
-    num_parameters = sum([l.nelement() for l in model.parameters()])
-    logging.info("number of parameters: %d", num_parameters)
-
-    train_loader = torch.utils.data.DataLoader(AlignedDatasets([train_src_data, train_target_data]),
-                                               batch_size=args.batch_size,
-                                               collate_fn=create_padded_batch(),
-                                               shuffle=True, num_workers=args.workers)
-    val_loader = torch.utils.data.DataLoader(AlignedDatasets([val_src_data, val_target_data]),
-                                             batch_size=args.batch_size,
-                                             collate_fn=create_padded_batch(),
-                                             num_workers=args.workers)
-    regime = {e: {'optimizer': args.optimizer,
-                  'lr': args.lr * (e ** 0.5),
-                  'momentum': args.momentum,
-                  'weight_decay': args.weight_decay} for e in range(10)}
-    # define loss function (criterion) and optimizer
-    loss_weight = torch.ones(target_tok.vocab_size())
-    loss_weight[PAD] = 0
-    criterion = nn.CrossEntropyLoss(weight=loss_weight, size_average=False)
-    criterion.type(args.type)
-    model.type(args.type)
 
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr)
     logging.info('training regime: %s', regime)
@@ -174,9 +175,9 @@ def main():
                          '\n \t Target: {target}'
                          '\n \t Prediction: {pred}'
                          .format(i,
-                                 src=src_tok.detokenize(src_seq.data[1:-1]),
-                                 target=target_tok.detokenize(target_seq[1:-1].data)[::-1],
-                                 pred=target_tok.detokenize(pred_seq.data[:-1])[::-1]))
+                                 src=src_tok.detokenize(src_seq.data[1:]),
+                                 target=target_tok.detokenize(target_seq[1:].data),
+                                 pred=target_tok.detokenize(pred_seq.data[:])))
 
         # remember best prec@1 and save checkpoint
         is_best = val_perplexity < best_perplexity
@@ -230,12 +231,13 @@ def forward(data_loader, model, criterion, epoch=0, training=True, optimizer=Non
         output = model(src_var, target_var[:-1])
 
         T, B = output.size(0), output.size(1)
+        num_words = sum(target_length) - B
         loss = criterion(output.view(T * B, -1).contiguous(),
                          target_var[1:].contiguous().view(-1))
-        loss /= (sum(target_length) - B)
+        loss /= num_words
         # measure accuracy and record loss
-        losses.update(loss.data[0], target.size(1))
-        perplexity.update(2 ** loss.data[0], target.size(1))
+        losses.update(loss.data[0], num_words)
+        perplexity.update(2 ** loss.data[0], num_words)
 
         if training:
             # compute gradient and do SGD step
