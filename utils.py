@@ -1,7 +1,6 @@
 import os
 import torch
 import logging.config
-import shutil
 import pandas as pd
 from bokeh.io import output_file, save, show
 from bokeh.plotting import figure
@@ -71,16 +70,6 @@ class ResultsLog(object):
         fig = figure()
         fig.image(*kargs, **kwargs)
         self.figures.append(fig)
-
-
-def save_checkpoint(state, is_best, path='.', filename='checkpoint.pth.tar', save_all=False):
-    filename = os.path.join(path, filename)
-    torch.save(state, filename)
-    if is_best:
-        shutil.copyfile(filename, os.path.join(path, 'model_best.pth.tar'))
-    if save_all:
-        shutil.copyfile(filename, os.path.join(
-            path, 'checkpoint_epoch_%s.pth.tar' % state['epoch']))
 
 
 class AverageMeter(object):

@@ -5,8 +5,7 @@ import string
 import codecs
 import sys
 import torch
-from data import LinedTextDataset, AlignedDatasets, create_padded_batch, get_dataset_bpe
-from tokenizer import BPETokentizer
+from datasets import MultiLanguageDataset
 from torch.utils.data import DataLoader
 
 if __name__ == '__main__':
@@ -22,11 +21,9 @@ if __name__ == '__main__':
     #     sys.stdin = codecs.getreader('UTF-8')(sys.stdin.buffer)
 
     # prefix = "/home/ehoffer/Datasets/Language/news_commentary_v10/news-commentary-v10.fr-en"
-    # langs = ['en', 'fr']
+    langs = ['en', 'he']
 
-datasets, tokenizers = get_dataset_bpe(append_bos=[True, False])
-check_batch = DataLoader(AlignedDatasets(
-    datasets), batch_size=32, collate_fn=create_padded_batch(), shuffle=True, num_workers=8)
+    dataset = MultiLanguageDataset(languages=langs)
 
 # check_single_batch = DataLoader(datasets[i], batch_size=32, collate_fn=create_padded_batch())
 # check = AlignedDatasets(datasets)

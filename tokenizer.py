@@ -14,7 +14,8 @@ import apply_bpe
 class Tokenizer(object):
 
     def __init__(self, max_length=500, vocab_file=None, vocab_threshold=2):
-        self.max_length = 500
+        self.max_length = max_length
+        self.vocab_threshold = vocab_threshold
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
         self.__word2idx = {}
         self.vocab = []
@@ -69,14 +70,16 @@ class Tokenizer(object):
         self.vocab = vocab.most_common(limit)
         self.update_word2idx()
 
-    def tokenize(self, line, append_bos=False, append_eos=False):
-        """tokenize a line"""
+    def tokenize(self, line, insert_start=None, insert_end=None):
+        """tokenize a line, insert_start and insert_end are lists of tokens"""
         inputs = self.segment(line)
-        targets = [BOS] if append_bos else []
+        targets = []
+        if insert_start is not None:
+            targets += insert_start
         for w in inputs:
             targets.append(self.word2idx(w))
-        if append_eos:
-            targets.append(EOS)
+        if insert_end is not None:
+            targets += insert_end
         return torch.LongTensor(targets)
 
     def detokenize(self, inputs, delimeter=' '):
@@ -125,3 +128,15 @@ class BPETokenizer(Tokenizer):
     def detokenize(self, inputs, delimeter=' '):
         detok_string = super(BPETokenizer, self).detokenize(inputs, delimeter)
         return detok_string.replace(self.seperator + ' ', '')
+
+
+class CharTokenizer(Tokenizer):
+
+    def __init__(self, vocab_file):
+        super(CharTokenizer, self).__init__(vocab_file=vocab_file)
+
+    def segment(self, line):
+        return list(line.strip())
+
+    def detokenize(self, inputs, delimeter=''):
+        return super(CharTokenizer, self).detokenize(inputs, delimeter)
