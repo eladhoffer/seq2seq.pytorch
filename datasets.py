@@ -1,5 +1,8 @@
-from copy import copy
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals
+from copy import copy, deepcopy
 import math
+import logging
 from tokenizer import Tokenizer, BPETokenizer, CharTokenizer
 from config import *
 import torch
@@ -51,57 +54,77 @@ class MultiLanguageDataset(object):
                  shared_vocab=True,
                  code_files=None,
                  vocab_files=None,
-                 insert_start=[BOS], insert_end=[EOS]):
+                 insert_start=[BOS], insert_end=[EOS],
+                 tokenizers=None,
+                 load_data=True):
         super(MultiLanguageDataset, self).__init__()
         self.languages = languages
-        if tokenization not in ['bpe', 'char', 'word']:
-            raise ValueError("An invalid option for tokenization was used, options are {0}".format(
-                ','.join(['bpe', 'char', 'word'])))
+        self.shared_vocab = shared_vocab
+        self.num_symbols = num_symbols
+        self.tokenizers = tokenizers
+        self.tokenization = tokenization
+        self.insert_start = insert_start
+        self.insert_end = insert_end
         self.input_files = {l: '{prefix}.{lang}'.format(
             prefix=prefix, lang=l) for l in languages}
 
-        if tokenization == 'bpe':
+        if self.tokenizers is None:
+            if tokenization not in ['bpe', 'char', 'word']:
+                raise ValueError("An invalid option for tokenization was used, options are {0}".format(
+                    ','.join(['bpe', 'char', 'word'])))
+
+
+            if tokenization == 'bpe':
+                if not shared_vocab:
+                    self.code_files = code_files or {l: '{prefix}.{lang}.{tok}.codes_{num_symbols}'.format(
+                        prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
+                else:
+                    code_file = code_files or '{prefix}.{tok}.shared_codes_{num_symbols}_{languages}'.format(
+                        prefix=prefix, tok=tokenization, languages='_'.join(languages), num_symbols=num_symbols)
+                    self.code_files = {l: code_file for l in languages}
+
             if not shared_vocab:
-                self.code_files = code_files or {l: '{prefix}.{lang}.{tok}.codes_{num_symbols}'.format(
+                self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab{num_symbols}'.format(
                     prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
             else:
-                code_file = code_files or '{prefix}.{tok}.shared_codes_{num_symbols}_{languages}'.format(
+                vocab = vocab_files or '{prefix}.{tok}.shared_vocab{num_symbols}_{languages}'.format(
                     prefix=prefix, tok=tokenization, languages='_'.join(languages), num_symbols=num_symbols)
-                self.code_files = {l: code_file for l in languages}
+                self.vocab_files = {l: vocab for l in languages}
+            self.generate_tokenizers()
 
-        if not shared_vocab:
-            self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab{num_symbols}'.format(
-                prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
-        else:
-            vocab = vocab_files or '{prefix}.{tok}.shared_vocab{num_symbols}_{languages}'.format(
-                prefix=prefix, tok=tokenization, languages='_'.join(languages), num_symbols=num_symbols)
-            self.vocab_files = {l: vocab for l in languages}
+        if load_data:
+            self.load_data()
+
+    def generate_tokenizers(self):
         self.tokenizers = OrderedDict()
-        for l in languages:
-            if shared_vocab:
-                files = self.input_files
+        for l in self.languages:
+            if self.shared_vocab:
+                files = [self.input_files[t] for t in self.languages]
             else:
                 files = self.input_files[l]
 
-            if tokenization == 'bpe':
+            if self.tokenization == 'bpe':
                 tokz = BPETokenizer(self.code_files[l],
                                     vocab_file=self.vocab_files[l],
-                                    num_symbols=num_symbols)
+                                    num_symbols=self.num_symbols)
                 if not hasattr(tokz, 'bpe'):
                     tokz.learn_bpe(files)
             else:
-                tokz = __tokenizers[tokenization](
+                tokz = __tokenizers[self.tokenization](
                     vocab_file=self.vocab_files[l])
 
             if not hasattr(tokz, 'vocab'):
+                logging.info('generating vocabulary. saving to %s' %
+                             self.vocab_files[l])
                 tokz.get_vocab(files)
                 tokz.save_vocab(self.vocab_files[l])
             self.tokenizers[l] = tokz
 
+    def load_data(self):
         self.datasets = OrderedDict()
-        for l in languages:
+        for l in self.languages:
             transform = lambda t: self.tokenizers[l].tokenize(
-                t, insert_start=insert_start, insert_end=insert_end)
+                t, insert_start=self.insert_start, insert_end=self.insert_end)
             self.datasets[l] = LinedTextDataset(
                 self.input_files[l], transform=transform)
 
@@ -138,3 +161,52 @@ class MultiLanguageDataset(object):
                                            num_workers=num_workers,
                                            pin_memory=pin_memory,
                                            drop_last=drop_last)
+
+
+class WMT16_de_en(MultiLanguageDataset):
+    """docstring for Dataset."""
+
+    def __init__(self, root='./data/wmt16_de_en',
+                 split='train',
+                 tokenization='bpe',
+                 num_symbols=32000,
+                 shared_vocab=True,
+                 code_files=None,
+                 vocab_files=None,
+                 insert_start=[BOS],
+                 insert_end=[EOS],
+                 tokenizers=None,
+                 load_data=True):
+
+        train_prefix = "{root}/train.clean".format(root=root)
+        options = dict(
+                     prefix=train_prefix,
+                     languages=['de', 'en'],
+                     tokenization=tokenization,
+                     num_symbols=num_symbols,
+                     shared_vocab=shared_vocab,
+                     code_files=code_files,
+                     vocab_files=vocab_files,
+                     insert_start=insert_start,
+                     insert_end=insert_end,
+                     tokenizers=tokenizers,
+                     load_data=False
+                     )
+        train_options = deepcopy(options)
+
+        if split == 'train':
+            options = train_options
+        else:
+            train_data = MultiLanguageDataset(**train_options)
+            options['tokenizers'] = getattr(train_data, 'tokenizers', None)
+            options['code_files'] = getattr(train_data, 'code_files', None)
+            options['vocab_files'] = getattr(train_data, 'vocab_files', None)
+            if split == 'dev':
+                prefix="{root}/newstest2014.clean".format(root=root)
+            elif split == 'test':
+                prefix="{root}/newstest2016.clean".format(root=root)
+
+            options['prefix'] = prefix
+        super(WMT16_de_en, self).__init__(**options)
+        if load_data:
+            self.load_data()

@@ -15,7 +15,7 @@ from datetime import datetime
 from ast import literal_eval
 from models.recurrent import RecurentEncoder, RecurentDecoder
 from seq2seq import Seq2Seq
-from datasets import MultiLanguageDataset
+from datasets import MultiLanguageDataset, WMT16_de_en
 from config import *
 import pdb
 
@@ -83,10 +83,9 @@ def main():
         args.gpus = None
 
     # Data loading code
-    languages = ['en', 'he']
-    data = MultiLanguageDataset(languages=languages)
-    src_tok, target_tok = data.tokenizers.values()
-    train_data, val_data = data, data#data.split(0.1)
+    train_data = WMT16_de_en(split='train')
+    val_data = WMT16_de_en(split='dev')
+    src_tok, target_tok = train_data.tokenizers.values()
 
     encoder = RecurentEncoder(src_tok.vocab_size(),
                               hidden_size=128, num_layers=1, bidirectional=True)

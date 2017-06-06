@@ -1,11 +1,11 @@
+# -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-
 import os
 import string
 import codecs
 import sys
 import torch
-from datasets import MultiLanguageDataset
+from datasets import MultiLanguageDataset, WMT16_de_en
 from torch.utils.data import DataLoader
 
 if __name__ == '__main__':
@@ -20,10 +20,13 @@ if __name__ == '__main__':
     #     sys.stdout = codecs.getwriter('UTF-8')(sys.stdout.buffer)
     #     sys.stdin = codecs.getreader('UTF-8')(sys.stdin.buffer)
 
-    # prefix = "/home/ehoffer/Datasets/Language/news_commentary_v10/news-commentary-v10.fr-en"
-    langs = ['en', 'he']
+    # prefix = './data/wmt16_de_en/train.clean'
+    # langs = ['en', 'de']
+    #
+    # dataset = MultiLanguageDataset(prefix=prefix, languages=langs)
+    train_data = WMT16_de_en(split='train')
+    dev_data = WMT16_de_en(split='dev')
 
-    dataset = MultiLanguageDataset(languages=langs)
 
 # check_single_batch = DataLoader(datasets[i], batch_size=32, collate_fn=create_padded_batch())
 # check = AlignedDatasets(datasets)

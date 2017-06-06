@@ -30,7 +30,7 @@ class LinedTextDataset(Dataset):
         self.transform = transform
         if self.load_mem:
             self.items = []
-            with open(self.filename, encoding="utf-8") as f:
+            with codecs.open(self.filename, encoding='UTF-8') as f:
                 for line in f:
                     self.items.append(line)
         else:
@@ -42,7 +42,7 @@ class LinedTextDataset(Dataset):
         if self.load_mem:
             item = self.items[index]
         else:
-            with open(self.filename, encoding="utf-8") as f:
+            with codecs.open(self.filename, encoding='UTF-8') as f:
                 f.seek(self.items[index])
                 item = f.readline()
         if self.transform is not None:

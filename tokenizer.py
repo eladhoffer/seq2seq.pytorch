@@ -1,7 +1,10 @@
+# -*- coding: utf-8 -*-
+
 from __future__ import unicode_literals
 import os
 import string
 import codecs
+import logging
 import sys
 from collections import Counter
 import torch
@@ -18,7 +21,6 @@ class Tokenizer(object):
         self.vocab_threshold = vocab_threshold
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
         self.__word2idx = {}
-        self.vocab = []
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
 
@@ -108,6 +110,7 @@ class BPETokenizer(Tokenizer):
         return self.bpe.segment(line).strip().split()
 
     def learn_bpe(self, filenames):
+        logging.info('generating bpe codes file. saving to %s' % self.codes_file)
         if isinstance(filenames, str):
             filenames = [filenames]
 
