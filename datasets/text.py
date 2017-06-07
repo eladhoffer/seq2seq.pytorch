@@ -1,15 +1,7 @@
-import os
 from copy import copy
-import torch
 from torch.utils.data import Dataset
-import torchvision.datasets as dset
-import torchvision.transforms as transforms
-import string
-from random import randrange
-from config import *
 import codecs
 import sys
-from tokenizer import BPETokenizer
 
 
 def list_line_locations(filename):

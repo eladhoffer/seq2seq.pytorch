@@ -17,7 +17,7 @@
 set -e
 
 
-OUTPUT_DIR=${OUTPUT_DIR:-"./wmt16_de_en"}
+OUTPUT_DIR=${1:-"../wmt16_de_en"}
 echo "Writing to ${OUTPUT_DIR}. To change this, set the OUTPUT_DIR environment variable."
 
 OUTPUT_DIR_DATA="${OUTPUT_DIR}/data"

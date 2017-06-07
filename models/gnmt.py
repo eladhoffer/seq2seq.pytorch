@@ -22,12 +22,12 @@ class Attention(nn.Module):
         B, T, x_dim = list(xt.size())
         y_dim = y.size(1)
         y_expanded = y.unsqueeze(1).expand(B, T, y_dim)
-        inputs = torch.cat([y_expand, xt], 2).view(B * T, x_dim + y_dim)
+        inputs = torch.cat([y_expanded, xt], 2).view(B * T, x_dim + y_dim)
         hidden = self.linear1(inputs)
         output = self.linear2(hidden)  # (B*T)x1
         attention = self.softmax(output.view(B, T)).unsqueeze(1)
         weighted_xt = torch.bmm(attention, xt).squeeze(1)  # B x x_dim
-        return weighted_xt
+        return weighted_xt, attention
 
 
 class RecurentEncoder(nn.Module):
@@ -87,9 +87,10 @@ class RecurentDecoder(nn.Module):
             x += residual
         return x
 
+
 class StackedRecurrentAttention(nn.Module):
 
-    def __init__(self, num_layers, input_size, rnn_size,attention, dropout):
+    def __init__(self, num_layers, input_size, rnn_size, context_size, dropout):
         super(StackedRecurrentAttention, self).__init__()
         self.dropout = nn.Dropout(dropout)
         self.num_layers = num_layers
@@ -98,7 +99,7 @@ class StackedRecurrentAttention(nn.Module):
         self.attention = attention
 
         for i in range(num_layers):
-            self.layers.append(nn.LSTMCell(input_size, rnn_size))
+            self.layers.append(nn.LSTMCell(input_size + context_size, rnn_size))
             input_size = rnn_size
 
     def __forward_one(self, input, hidden, context):
@@ -106,7 +107,8 @@ class StackedRecurrentAttention(nn.Module):
         h_1, c_1 = [], []
         output = input
         for i, layer in enumerate(self.layers):
-            output = torch.cat([output, context],1)
+            weighted_context, attention = self.attention(output, context)
+            output = torch.cat([output, weighted_context], 1)
             h_1_i, c_1_i = layer(output, (h_0[i], c_0[i]))
             output = h_1_i
             if i + 1 != self.num_layers:
@@ -117,9 +119,9 @@ class StackedRecurrentAttention(nn.Module):
         h_1 = torch.stack(h_1)
         c_1 = torch.stack(c_1)
 
-        return output, (h_1, c_1)
+        return output, (weighted_context, attention), (h_1, c_1)
 
-    def forward(self, input, hidden):
+    def forward(self, input, context, hidden=None):
         packed_seq = isinstance(input, PackedSequence)
 
         if packed_seq:
@@ -131,12 +133,20 @@ class StackedRecurrentAttention(nn.Module):
             hidden = (Variable(zeros), Variable(zeros))
 
         outputs = []
+        attentions = []
+        contexts = []
         for emb_t in input.split(1):
             emb_t = emb_t.squeeze(0)
-            output, hidden = self.__forward_one(emb_t, hidden, context)
+            output, (weighted_context, attention), hidden = self.__forward_one(
+                emb_t, hidden, context)
             outputs.append(output)
+            attentions.append(attention)
+            contexts.append(weighted_context)
 
         outputs = torch.stack(outputs)
+        attentions = torch.stack(attentions)
+        contexts = torch.stack(contexts)
+
         if packed_seq:
             outputs = pack(outputs, lengths)
-        return outputs, hidden
+        return outputs, (contexts, attentions), hidden

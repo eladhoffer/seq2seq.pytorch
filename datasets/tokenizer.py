@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 from __future__ import unicode_literals
 import os
 import string
@@ -8,8 +7,8 @@ import logging
 import sys
 from collections import Counter
 import torch
-from config import *
-sys.path.append("./subword-nmt")
+from .config import *
+sys.path.append(".datasets/subword-nmt")
 import learn_bpe
 import apply_bpe
 

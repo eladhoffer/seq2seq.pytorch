@@ -7,46 +7,25 @@ import torch.optim
 import torch.utils.data
 from torch.autograd import Variable
 from torch.nn.utils import clip_grad_norm
-from utils import *
 import shutil
-import pdb
 
-from config import *
+from .utils import *
 
 
-class Seq2Seq(nn.Module):
+class Seq2SeqTrainer(nn.Module):
     """docstring for Trainer."""
 
-    def __init__(self, encoder, decoder, criterion, bridge=None, optimizer=None, print_freq=10, regime=None, grad_clip=None, cuda=True):
-        super(Seq2Seq, self).__init__()
-        self.add_module('encoder', encoder)
-        self.add_module('decoder', decoder)
-        if bridge is not None:
-            self.add_module('bridge', bridge)
+    def __init__(self, model, criterion, optimizer=None, print_freq=10, regime=None, grad_clip=None, cuda=True):
+        super(Seq2SeqTrainer, self).__init__()
+        self.model = model
         self.criterion = criterion
-        self.optimizer = optimizer(self.parameters(), lr=0.1)
+        self.optimizer = optimizer(self.model.parameters(), lr=0.1)
         self.grad_clip = grad_clip
         self.epoch = 0
         self.regime = regime
         self.cuda = cuda
         self.print_freq = print_freq
         self.lowet_perplexity = None
-
-    def encode(self, inputs, state=None):
-        if state:
-            return self.encoder(inputs, state)
-        else:
-            return self.encoder(inputs)
-
-    def decode(self, inputs, state=None):
-        return self.decoder(inputs, state)
-
-    def forward(self, input_encoder, input_decoder):
-        output, state = self.encode(input_encoder)
-        if hasattr(self.modules, 'bridge'):
-            input_decoder, state = self.bridge(input_decoder, state)
-        return self.decode(input_decoder, state)
-
 
     def feed_data(self, data_loader, training=True):
         if training:
@@ -67,7 +46,7 @@ class Seq2Seq(nn.Module):
             target_var = Variable(target, volatile=not training)
 
             # compute output
-            output = self(src_var, target_var[:-1])
+            output = self.model(src_var, target_var[:-1])
 
 
             T, B = output.size(0), output.size(1)
@@ -109,21 +88,21 @@ class Seq2Seq(nn.Module):
             self.optimizer = adjust_optimizer(
                 self.optimizer, self.epoch, self.regime)
         # switch to train mode
-        self.train()
+        self.model.train()
         output = self.feed_data(data_loader, training=True)
         self.epoch += 1
         return output
 
     def evaluate(self, data_loader):
         # switch to evaluate mode
-        self.eval()
+        self.model.eval()
         return self.feed_data(data_loader, training=False)
 
 
     def load(self, filename):
         if os.path.isfile(filename):
             checkpoint = torch.load(filename)
-            self.load_state_dict(checkpoint['state_dict'])
+            self.model.load_state_dict(checkpoint['state_dict'])
             self.epoch = checkpoint['epoch']
             self.lowet_perplexity = checkpoint['perplexity']
             logging.info("loaded checkpoint '%s' (epoch %s)",
@@ -134,7 +113,7 @@ class Seq2Seq(nn.Module):
     def save(self, filename='checkpoint.pth.tar', path='.', is_best=False, save_all=False):
         state = {
             'epoch': self.epoch,
-            'state_dict': self.state_dict(),
+            'state_dict': self.model.state_dict(),
             'perplexity': self.lowet_perplexity,
             'regime': self.regime
         }

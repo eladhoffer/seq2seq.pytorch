@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-from copy import copy, deepcopy
-import math
 import logging
-from tokenizer import Tokenizer, BPETokenizer, CharTokenizer
-from config import *
+import sys
 import torch
-from data import LinedTextDataset
 from collections import OrderedDict
+from .text import LinedTextDataset
 
+# sys.path.append("../tools/")
+from .tokenizer import Tokenizer, BPETokenizer, CharTokenizer
+from .config import *
+
+DATA_PATH = './data'
 __tokenizers = {
     'word': Tokenizer,
     'char': CharTokenizer,
@@ -72,7 +74,6 @@ class MultiLanguageDataset(object):
             if tokenization not in ['bpe', 'char', 'word']:
                 raise ValueError("An invalid option for tokenization was used, options are {0}".format(
                     ','.join(['bpe', 'char', 'word'])))
-
 
             if tokenization == 'bpe':
                 if not shared_vocab:
@@ -161,52 +162,3 @@ class MultiLanguageDataset(object):
                                            num_workers=num_workers,
                                            pin_memory=pin_memory,
                                            drop_last=drop_last)
-
-
-class WMT16_de_en(MultiLanguageDataset):
-    """docstring for Dataset."""
-
-    def __init__(self, root='./data/wmt16_de_en',
-                 split='train',
-                 tokenization='bpe',
-                 num_symbols=32000,
-                 shared_vocab=True,
-                 code_files=None,
-                 vocab_files=None,
-                 insert_start=[BOS],
-                 insert_end=[EOS],
-                 tokenizers=None,
-                 load_data=True):
-
-        train_prefix = "{root}/train.clean".format(root=root)
-        options = dict(
-                     prefix=train_prefix,
-                     languages=['de', 'en'],
-                     tokenization=tokenization,
-                     num_symbols=num_symbols,
-                     shared_vocab=shared_vocab,
-                     code_files=code_files,
-                     vocab_files=vocab_files,
-                     insert_start=insert_start,
-                     insert_end=insert_end,
-                     tokenizers=tokenizers,
-                     load_data=False
-                     )
-        train_options = deepcopy(options)
-
-        if split == 'train':
-            options = train_options
-        else:
-            train_data = MultiLanguageDataset(**train_options)
-            options['tokenizers'] = getattr(train_data, 'tokenizers', None)
-            options['code_files'] = getattr(train_data, 'code_files', None)
-            options['vocab_files'] = getattr(train_data, 'vocab_files', None)
-            if split == 'dev':
-                prefix="{root}/newstest2014.clean".format(root=root)
-            elif split == 'test':
-                prefix="{root}/newstest2016.clean".format(root=root)
-
-            options['prefix'] = prefix
-        super(WMT16_de_en, self).__init__(**options)
-        if load_data:
-            self.load_data()

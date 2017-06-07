@@ -1,23 +1,17 @@
 import argparse
 import os
-import time
-import logging
-import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
-import torch.utils.data
 from torch.autograd import Variable
-from torch.nn.utils import clip_grad_norm
-from utils import *
 from datetime import datetime
-from ast import literal_eval
 from models.recurrent import RecurentEncoder, RecurentDecoder
-from seq2seq import Seq2Seq
+from models.seq2seq import Seq2Seq
+from tools.utils import *
+from tools.trainer import Seq2SeqTrainer
 from datasets import MultiLanguageDataset, WMT16_de_en
-from config import *
-import pdb
+from tools.config import *
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
 
@@ -45,7 +39,7 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)')
-parser.add_argument('--print-freq', '-p', default=10, type=int,
+parser.add_argument('--print-freq', '-p', default=100, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
@@ -100,17 +94,18 @@ def main():
                   'lr': args.lr * (0.1 ** e),
                   'momentum': args.momentum,
                   'weight_decay': args.weight_decay} for e in range(10)}
+
     # define loss function (criterion) and optimizer
     loss_weight = torch.ones(target_tok.vocab_size())
     loss_weight[PAD] = 0
     criterion = nn.CrossEntropyLoss(weight=loss_weight, size_average=False)
     criterion.type(args.type)
 
-    model = Seq2Seq(encoder=encoder,
-                    decoder=decoder,
-                    criterion=criterion,
-                    optimizer=torch.optim.SGD,
-                    regime=regime)
+    model = Seq2Seq(encoder=encoder, decoder=decoder)
+    trainer = Seq2SeqTrainer(model,
+                             criterion=criterion,
+                             optimizer=torch.optim.SGD,
+                             regime=regime)
     num_parameters = sum([l.nelement() for l in model.parameters()])
     logging.info("number of parameters: %d", num_parameters)
 
@@ -118,51 +113,46 @@ def main():
 
     # optionally resume from a checkpoint
     if args.evaluate:
-        model.load(args.evaluate)
-    # elif args.resume:
-    #     checkpoint_file = args.resume
-    #     if os.path.isdir(checkpoint_file):
-    #         results.load(os.path.join(checkpoint_file, 'results.csv'))
-    #         checkpoint_file = os.path.join(
-    #             checkpoint_file, 'model_best.pth.tar')
-    #     if os.path.isfile(checkpoint_file):
-    #         logging.info("loading checkpoint '%s'", args.resume)
-    #         checkpoint = torch.load(checkpoint_file)
-    #         args.start_epoch = checkpoint['epoch']
-    #         best_perplexity = checkpoint['best_perplexity']
-    #         model.load_state_dict(checkpoint['state_dict'])
-    #         logging.info("loaded checkpoint '%s' (epoch %s)",
-    #                      checkpoint_file, checkpoint['epoch'])
-    #     else:
-    #         logging.error("no checkpoint found at '%s'", args.resume)
+        trainer.load(args.evaluate)
+    elif args.resume:
+        checkpoint_file = args.resume
+        if os.path.isdir(checkpoint_file):
+            results.load(os.path.join(checkpoint_file, 'results.csv'))
+            checkpoint_file = os.path.join(
+                checkpoint_file, 'model_best.pth.tar')
+        if os.path.isfile(checkpoint_file):
+            trainer.load(args.evaluate)
+        else:
+            logging.error("no checkpoint found at '%s'", args.resume)
 
     logging.info('training regime: %s', regime)
 
     for epoch in range(args.start_epoch, args.epochs):
 
         # train for one epoch
-        train_loss, train_perplexity = model.optimize(train_loader)
+        train_loss, train_perplexity = trainer.optimize(train_loader)
 
         # evaluate on validation set
-        val_loss, val_perplexity = model.evaluate(val_loader)
+        val_loss, val_perplexity = trainer.evaluate(val_loader)
         #
-        # model.eval()
-        # for i in range(10):
-        #     src_seq = Variable(val_src_data[i].cuda(), volatile=True)
-        #     target_seq = Variable(val_target_data[i].cuda(), volatile=True)
-        #     pred_seq = model(src_seq.unsqueeze(
-        #         1), target_seq[:-1].unsqueeze(1))
-        #     _, pred_seq = pred_seq.max(2)
-        #     pred_seq = pred_seq.view(-1)
-        #     logging.info('\n Example {0}:'
-        #                  '\n \t Source: {src}'
-        #                  '\n \t Target: {target}'
-        #                  '\n \t Prediction: {pred}'
-        #                  .format(i,
-        #                          src=src_tok.detokenize(src_seq.data[1:]),
-        #                          target=target_tok.detokenize(
-        #                              target_seq[1:].data),
-        #                          pred=target_tok.detokenize(pred_seq.data[:])))
+        model.eval()
+        for i in range(10):
+            src_seq, target_seq = val_data[i]
+            src_seq = Variable(src_seq.cuda(), volatile=True)
+            target_seq = Variable(target_seq.cuda(), volatile=True)
+            pred_seq = model(src_seq.unsqueeze(
+                1), target_seq[:-1].unsqueeze(1))
+            _, pred_seq = pred_seq.max(2)
+            pred_seq = pred_seq.view(-1)
+            logging.info('\n Example {0}:'
+                         '\n \t Source: {src}'
+                         '\n \t Target: {target}'
+                         '\n \t Prediction: {pred}'
+                         .format(i,
+                                 src=src_tok.detokenize(src_seq.data[1:]),
+                                 target=target_tok.detokenize(
+                                     target_seq[1:].data),
+                                 pred=target_tok.detokenize(pred_seq.data[:])))
 
         # remember best prec@1 and save checkpoint
         is_best = val_perplexity < best_perplexity
