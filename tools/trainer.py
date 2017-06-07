@@ -8,7 +8,7 @@ import torch.utils.data
 from torch.autograd import Variable
 from torch.nn.utils import clip_grad_norm
 import shutil
-
+import math
 from .utils import *
 
 
@@ -55,7 +55,7 @@ class Seq2SeqTrainer(nn.Module):
             loss /= num_words
             # measure accuracy and record loss
             losses.update(loss.data[0], num_words)
-            perplexity.update(2 ** loss.data[0], num_words)
+            perplexity.update(math.exp(loss.data[0]), num_words)
 
             if training:
                 # compute gradient and do SGD step
