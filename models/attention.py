@@ -25,11 +25,12 @@ import torch.nn as nn
 
 
 class GlobalAttention(nn.Module):
+
     def __init__(self, dim):
         super(GlobalAttention, self).__init__()
         self.linear_in = nn.Linear(dim, dim, bias=False)
         self.sm = nn.Softmax()
-        self.linear_out = nn.Linear(dim*2, dim, bias=False)
+        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
         self.tanh = nn.Tanh()
         self.mask = None
 

@@ -7,6 +7,7 @@ import torch.optim
 from torch.autograd import Variable
 from datetime import datetime
 from models.recurrent import RecurentEncoder, RecurentDecoder
+from models.gnmt import GNMT
 from models.seq2seq import Seq2Seq
 from tools.utils import *
 from tools.trainer import Seq2SeqTrainer
@@ -35,9 +36,9 @@ parser.add_argument('--optimizer', default='SGD', type=str, metavar='OPT',
                     help='optimizer function used')
 parser.add_argument('--lr', '--learning_rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate')
-parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
+parser.add_argument('--momentum', default=0, type=float, metavar='M',
                     help='momentum')
-parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
+parser.add_argument('--weight-decay', '--wd', default=0, type=float,
                     metavar='W', help='weight decay (default: 1e-4)')
 parser.add_argument('--print-freq', '-p', default=100, type=int,
                     metavar='N', help='print frequency (default: 10)')
@@ -81,17 +82,17 @@ def main():
     val_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='dev')
     src_tok, target_tok = train_data.tokenizers.values()
 
-    encoder = RecurentEncoder(src_tok.vocab_size(),
-                              hidden_size=128, num_layers=1, bidirectional=True)
-    decoder = RecurentDecoder(target_tok.vocab_size(),
-                              hidden_size=128, num_layers=2)
+    # encoder = RecurentEncoder(src_tok.vocab_size(),
+    #                           hidden_size=128, num_layers=1, bidirectional=True)
+    # decoder = RecurentDecoder(target_tok.vocab_size(),
+    #                           hidden_size=128, num_layers=2)
 
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          shuffle=True, num_workers=args.workers)
     val_loader = val_data.get_loader(batch_size=args.batch_size,
                                      shuffle=False, num_workers=args.workers)
     regime = {e: {'optimizer': args.optimizer,
-                  'lr': args.lr * (0.1 ** e),
+                  'lr': args.lr * (0.5 ** e),
                   'momentum': args.momentum,
                   'weight_decay': args.weight_decay} for e in range(10)}
 
@@ -101,7 +102,9 @@ def main():
     criterion = nn.CrossEntropyLoss(weight=loss_weight, size_average=False)
     criterion.type(args.type)
 
-    model = Seq2Seq(encoder=encoder, decoder=decoder)
+    # model = Seq2Seq(encoder=encoder, decoder=decoder)
+    model = GNMT(target_tok.vocab_size())
+    print(model)
     trainer = Seq2SeqTrainer(model,
                              criterion=criterion,
                              optimizer=torch.optim.SGD,
@@ -134,7 +137,7 @@ def main():
 
         # evaluate on validation set
         val_loss, val_perplexity = trainer.evaluate(val_loader)
-        #
+
         model.eval()
         for i in range(10):
             src_seq, target_seq = val_data[i]

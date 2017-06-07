@@ -7,6 +7,7 @@ from torch.nn.utils.rnn import PackedSequence
 import math
 import pdb
 
+
 class RecurentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128,

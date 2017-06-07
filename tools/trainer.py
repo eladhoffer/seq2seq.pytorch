@@ -48,7 +48,6 @@ class Seq2SeqTrainer(nn.Module):
             # compute output
             output = self.model(src_var, target_var[:-1])
 
-
             T, B = output.size(0), output.size(1)
             num_words = sum(target_length) - B
             loss = self.criterion(output.view(T * B, -1).contiguous(),
@@ -97,7 +96,6 @@ class Seq2SeqTrainer(nn.Module):
         # switch to evaluate mode
         self.model.eval()
         return self.feed_data(data_loader, training=False)
-
 
     def load(self, filename):
         if os.path.isfile(filename):

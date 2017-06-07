@@ -9,7 +9,8 @@ from collections import Counter
 import torch
 from config import *
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), './subword-nmt')))
+sys.path.append(os.path.abspath(os.path.join(
+    os.path.dirname(__file__), './subword-nmt')))
 import learn_bpe
 import apply_bpe
 
@@ -84,8 +85,9 @@ class Tokenizer(object):
             targets += insert_end
         return torch.LongTensor(targets)
 
-    def detokenize(self, inputs, delimeter=' '):
-        return delimeter.join([self.idx2word(idx) for idx in inputs])
+    def detokenize(self, inputs, delimiter=u' '):
+        return delimiter.join([self.idx2word(idx) for idx in inputs]).encode('utf-8')
+        # return delimiter.join([self.idx2word(idx) for idx in inputs])
 
 
 class BPETokenizer(Tokenizer):
@@ -110,7 +112,8 @@ class BPETokenizer(Tokenizer):
         return self.bpe.segment(line).strip().split()
 
     def learn_bpe(self, filenames):
-        logging.info('generating bpe codes file. saving to %s' % self.codes_file)
+        logging.info('generating bpe codes file. saving to %s' %
+                     self.codes_file)
         if isinstance(filenames, str):
             filenames = [filenames]
 
@@ -128,9 +131,12 @@ class BPETokenizer(Tokenizer):
                            self.min_frequency, False, is_dict=True)
         self.set_bpe(self.codes_file)
 
-    def detokenize(self, inputs, delimeter=' '):
-        detok_string = super(BPETokenizer, self).detokenize(inputs, delimeter)
-        return detok_string.replace(self.seperator + ' ', '')
+    def detokenize(self, inputs, delimiter=' '):
+        detok_string = super(BPETokenizer, self).detokenize(inputs, delimiter)
+        detok_string = detok_string.decode(
+            'utf-8').replace(self.seperator + ' ', '')
+        detok_string = detok_string.encode('utf-8').strip()
+        return detok_string
 
 
 class CharTokenizer(Tokenizer):
@@ -141,5 +147,5 @@ class CharTokenizer(Tokenizer):
     def segment(self, line):
         return list(line.strip())
 
-    def detokenize(self, inputs, delimeter=''):
-        return super(CharTokenizer, self).detokenize(inputs, delimeter)
+    def detokenize(self, inputs, delimiter=u''):
+        return super(CharTokenizer, self).detokenize(inputs, delimiter)

@@ -121,7 +121,7 @@ def adjust_optimizer(optimizer, epoch, config):
     if callable(config):
         optimizer = modify_optimizer(optimizer, config(epoch))
     else:
-        for e in range(epoch+1):  # run over all epochs - sticky setting
+        for e in range(epoch + 1):  # run over all epochs - sticky setting
             if e in config:
                 optimizer = modify_optimizer(optimizer, config[e])
 

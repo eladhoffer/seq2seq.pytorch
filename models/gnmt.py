@@ -6,6 +6,41 @@ from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import PackedSequence
 import math
 import pdb
+from seq2seq import Seq2Seq
+
+
+class GNMT(nn.Module):
+
+    def __init__(self, vocab_size, hidden_size=512,
+                 num_layers=8, bias=True, batch_first=False,
+                 dropout=0):
+        super(GNMT, self).__init__()
+        self.encoder = RecurrentEncoder(vocab_size, hidden_size,
+                                        num_layers, bias, batch_first,
+                                        dropout)
+        self.encoder.cuda(1)
+        self.decoder = RecurrentDecoder(vocab_size, hidden_size=hidden_size,
+                                        context_size=hidden_size,
+                                        attention_size=hidden_size,
+                                        num_layers=num_layers,
+                                        bias=bias,
+                                        batch_first=batch_first,
+                                        dropout=dropout)
+        self.decoder.cuda(2)
+
+    def forward(self, input_encoder, input_decoder, get_attention=False):
+        input_encoder = input_encoder.cuda(1)
+        context, _ = self.encoder(input_encoder)
+        input_decoder = input_decoder.cuda(2)
+        context = context.cuda(2)
+        output, attention = self.decoder(input_decoder, context)
+        output = output.cuda(0)
+        attention = attention.cuda(0)
+
+        if get_attention:
+            return output, attention
+        else:
+            return output
 
 
 class Attention(nn.Module):
@@ -15,7 +50,7 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         self.linear1 = nn.Linear(y_dim + x_dim, hidden_size)
         self.linear2 = nn.Linear(hidden_size, 1)
-        self.softmax = nn.SoftMax()
+        self.softmax = nn.Softmax()
 
     def forward(self, y, xt):
         xt = xt.transpose(0, 1)
@@ -25,17 +60,18 @@ class Attention(nn.Module):
         inputs = torch.cat([y_expanded, xt], 2).view(B * T, x_dim + y_dim)
         hidden = self.linear1(inputs)
         output = self.linear2(hidden)  # (B*T)x1
-        attention = self.softmax(output.view(B, T)).unsqueeze(1)
-        weighted_xt = torch.bmm(attention, xt).squeeze(1)  # B x x_dim
+        attention = self.softmax(output.view(B, T))
+        weighted_xt = torch.bmm(attention.unsqueeze(1),
+                                xt).squeeze(1)  # B x x_dim
         return weighted_xt, attention
 
 
-class RecurentEncoder(nn.Module):
+class RecurrentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128,
                  num_layers=8, bias=True, batch_first=False,
                  dropout=0):
-        super(RecurentEncoder, self).__init__()
+        super(RecurrentEncoder, self).__init__()
 
         self.rnn_layers = nn.ModuleList()
         self.rnn_layers.append(nn.LSTM(hidden_size, hidden_size, num_layers=1, bias=bias, dropout=dropout,
@@ -54,99 +90,74 @@ class RecurentEncoder(nn.Module):
         x, _ = self.rnn_layers[1](x)
         for i in range(2, len(self.rnn_layers)):
             residual = x
-            x, _ = self.rnn_layers[i](x)
-            x += residual
-        return x
+            x, hidden = self.rnn_layers[i](x)
+            x = x + residual
+        return x, hidden
 
 
-class RecurentDecoder(nn.Module):
+class RecurrentDecoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=128, context_size=128,
+    def __init__(self, vocab_size, hidden_size=128, context_size=128, attention_size=128,
                  num_layers=8, bias=True, batch_first=False,
                  dropout=0):
-        super(RecurentDecoder, self).__init__()
+        super(RecurrentDecoder, self).__init__()
 
         self.rnn_layers = nn.ModuleList()
+        self.rnn_layers.append(AttentionLSTMCell(
+            hidden_size, context_size, hidden_size, attention_size, bias))
         self.rnn_layers.append(nn.LSTM(hidden_size, hidden_size, num_layers=1, bias=bias, dropout=dropout,
                                        bidirectional=False))
-        self.rnn_layers.append(nn.LSTM(2 * hidden_size, hidden_size, num_layers=1, bias=bias, dropout=dropout,
-                                       bidirectional=False))
-        for n in range(num_layers):
-            self.rnn_layers.append(nn.LSTM(hidden_size, hidden_size, num_layers=1, bias=bias, dropout=dropout,
+        for n in range(num_layers - 2):
+            self.rnn_layers.append(nn.LSTM(2 * hidden_size, hidden_size, num_layers=1, bias=bias, dropout=dropout,
                                            bidirectional=False))
         self.embedder = nn.Embedding(vocab_size, hidden_size)
+        self.classifier = nn.Linear(hidden_size, vocab_size)
         self.vocab_size = vocab_size
 
-    def forward(self, inputs, hidden=None):
+    def forward(self, inputs, context, hidden=None):
         x = self.embedder(inputs)
-        x, _ = self.rnn_layers[0](x)
-        x, _ = self.rnn_layers[1](x)
+        x, _, attentions = self.rnn_layers[0](x, context)
+        context = x
+        x, _, = self.rnn_layers[1](x)
         for i in range(2, len(self.rnn_layers)):
             residual = x
+            x = torch.cat([x, context], 2)
             x, _ = self.rnn_layers[i](x)
-            x += residual
-        return x
+            x = x + residual
+        x = x.view(-1, x.size(2))
+        x = self.classifier(x)
+        x = x.view(inputs.size(0), inputs.size(1), -1)
+        return x, attentions
 
 
-class StackedRecurrentAttention(nn.Module):
+class AttentionLSTMCell(nn.Module):
 
-    def __init__(self, num_layers, input_size, rnn_size, context_size, dropout):
-        super(StackedRecurrentAttention, self).__init__()
-        self.dropout = nn.Dropout(dropout)
-        self.num_layers = num_layers
-        self.layers = nn.ModuleList()
-        self.rnn_size = rnn_size
-        self.attention = attention
+    def __init__(self, input_size, context_size, hidden_size, attention_size=128, bias=True):
+        super(AttentionLSTMCell, self).__init__()
+        self.hidden_size = hidden_size
+        self.cell = nn.LSTMCell(input_size, hidden_size, bias=bias)
+        self.attn = Attention(input_size, context_size, attention_size)
 
-        for i in range(num_layers):
-            self.layers.append(nn.LSTMCell(input_size + context_size, rnn_size))
-            input_size = rnn_size
-
-    def __forward_one(self, input, hidden, context):
-        h_0, c_0 = hidden
-        h_1, c_1 = [], []
-        output = input
-        for i, layer in enumerate(self.layers):
-            weighted_context, attention = self.attention(output, context)
-            output = torch.cat([output, weighted_context], 1)
-            h_1_i, c_1_i = layer(output, (h_0[i], c_0[i]))
-            output = h_1_i
-            if i + 1 != self.num_layers:
-                output = self.dropout(output)
-            h_1 += [h_1_i]
-            c_1 += [c_1_i]
-
-        h_1 = torch.stack(h_1)
-        c_1 = torch.stack(c_1)
-
-        return output, (weighted_context, attention), (h_1, c_1)
-
-    def forward(self, input, context, hidden=None):
-        packed_seq = isinstance(input, PackedSequence)
-
-        if packed_seq:
-            input, lengths = unpack(input)
-
+    def forward(self, inputs, context, hidden=None):
         if hidden is None:
-            zeros = input.data.new().resize_(
-                self.num_layers, input.size(1), self.rnn_size).zero_()
+            zeros = inputs.data.new().resize_(inputs.size(1), self.hidden_size).zero_()
             hidden = (Variable(zeros), Variable(zeros))
-
         outputs = []
         attentions = []
-        contexts = []
-        for emb_t in input.split(1):
-            emb_t = emb_t.squeeze(0)
-            output, (weighted_context, attention), hidden = self.__forward_one(
-                emb_t, hidden, context)
-            outputs.append(output)
-            attentions.append(attention)
-            contexts.append(weighted_context)
+        for inputs_t in inputs.split(1):
+            inputs_t = inputs_t.squeeze(0)
+            hidden = self.cell(inputs_t, hidden)
+            output, _ = hidden
+            output, attention = self.attn(output, context)
+            outputs += [output]
+            attentions += [attention]
 
         outputs = torch.stack(outputs)
         attentions = torch.stack(attentions)
-        contexts = torch.stack(contexts)
+        return outputs, hidden, attentions
 
-        if packed_seq:
-            outputs = pack(outputs, lengths)
-        return outputs, (contexts, attentions), hidden
+# #test:
+# model = GNMT(32000)
+# x1 = torch.autograd.Variable(torch.rand(16,32).long().fill_(2))
+# x2 = torch.autograd.Variable(torch.rand(7,32).long().fill_(2))
+# y = model(x1, x2, get_attention=True)

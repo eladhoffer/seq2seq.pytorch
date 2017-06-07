@@ -2,11 +2,12 @@
 from __future__ import unicode_literals
 from .multi_language import MultiLanguageDataset
 
+
 class OpenSubtitles2016(MultiLanguageDataset):
     """docstring for Dataset."""
 
     def __init__(self,
-                 root='/media/drive/wmt16_de_en',
+                 root,
                  split='train',
                  tokenization='bpe',
                  num_symbols=32000,

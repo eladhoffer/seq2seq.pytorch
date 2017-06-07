@@ -7,7 +7,8 @@ import torch
 from collections import OrderedDict
 from text import LinedTextDataset
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+sys.path.append(os.path.abspath(os.path.join(
+    os.path.dirname(__file__), '..', '..')))
 from tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
 from tools.config import *
 

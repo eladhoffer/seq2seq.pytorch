@@ -1,9 +1,7 @@
 import torch.nn as nn
 
 
-
 class Seq2Seq(nn.Module):
-    """docstring for Trainer."""
 
     def __init__(self, encoder, decoder, bridge=None):
         super(Seq2Seq, self).__init__()
@@ -11,7 +9,6 @@ class Seq2Seq(nn.Module):
         self.add_module('decoder', decoder)
         if bridge is not None:
             self.add_module('bridge', bridge)
-
 
     def encode(self, inputs, state=None):
         if state:
