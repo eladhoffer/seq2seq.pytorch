@@ -77,8 +77,8 @@ def main():
         args.gpus = None
 
     # Data loading code
-    train_data = WMT16_de_en(split='train')
-    val_data = WMT16_de_en(split='dev')
+    train_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='train')
+    val_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='dev')
     src_tok, target_tok = train_data.tokenizers.values()
 
     encoder = RecurentEncoder(src_tok.vocab_size(),

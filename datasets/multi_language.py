@@ -2,13 +2,14 @@
 from __future__ import unicode_literals
 import logging
 import sys
+import os
 import torch
 from collections import OrderedDict
-from .text import LinedTextDataset
+from text import LinedTextDataset
 
-# sys.path.append("../tools/")
-from .tokenizer import Tokenizer, BPETokenizer, CharTokenizer
-from .config import *
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
+from tools.config import *
 
 DATA_PATH = './data'
 __tokenizers = {
@@ -81,7 +82,7 @@ class MultiLanguageDataset(object):
                         prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
                 else:
                     code_file = code_files or '{prefix}.{tok}.shared_codes_{num_symbols}_{languages}'.format(
-                        prefix=prefix, tok=tokenization, languages='_'.join(languages), num_symbols=num_symbols)
+                        prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
                     self.code_files = {l: code_file for l in languages}
 
             if not shared_vocab:
@@ -89,7 +90,7 @@ class MultiLanguageDataset(object):
                     prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
             else:
                 vocab = vocab_files or '{prefix}.{tok}.shared_vocab{num_symbols}_{languages}'.format(
-                    prefix=prefix, tok=tokenization, languages='_'.join(languages), num_symbols=num_symbols)
+                    prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
                 self.vocab_files = {l: vocab for l in languages}
             self.generate_tokenizers()
 

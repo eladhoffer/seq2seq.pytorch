@@ -7,8 +7,9 @@ import logging
 import sys
 from collections import Counter
 import torch
-from .config import *
-sys.path.append(".datasets/subword-nmt")
+from config import *
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), './subword-nmt')))
 import learn_bpe
 import apply_bpe
 

@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from tools.config import *
 from copy import deepcopy
-from .multi_language import MultiLanguageDataset
+from multi_language import MultiLanguageDataset
 
 class WMT16_de_en(MultiLanguageDataset):
     """docstring for Dataset."""
 
     def __init__(self,
-                 root='/media/drive/wmt16_de_en',
+                 root,
                  split='train',
                  tokenization='bpe',
                  num_symbols=32000,
