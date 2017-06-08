@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(
+    os.path.dirname(__file__), '..', '..')))
+from tools.config import *
+from copy import deepcopy
 from .multi_language import MultiLanguageDataset
 
 
@@ -8,6 +14,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
 
     def __init__(self,
                  root,
+                 languages,
                  split='train',
                  tokenization='bpe',
                  num_symbols=32000,
@@ -19,10 +26,9 @@ class OpenSubtitles2016(MultiLanguageDataset):
                  tokenizers=None,
                  load_data=True):
 
-        train_prefix = "{root}/train.clean".format(root=root)
         options = dict(
-            prefix=train_prefix,
-            languages=['de', 'en'],
+            prefix=root + '.' + '-'.join(sorted(languages)),
+            languages=languages,
             tokenization=tokenization,
             num_symbols=num_symbols,
             shared_vocab=shared_vocab,
@@ -31,23 +37,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
             insert_start=insert_start,
             insert_end=insert_end,
             tokenizers=tokenizers,
-            load_data=False
+            load_data=load_data
         )
-        train_options = deepcopy(options)
 
-        if split == 'train':
-            options = train_options
-        else:
-            train_data = MultiLanguageDataset(**train_options)
-            options['tokenizers'] = getattr(train_data, 'tokenizers', None)
-            options['code_files'] = getattr(train_data, 'code_files', None)
-            options['vocab_files'] = getattr(train_data, 'vocab_files', None)
-            if split == 'dev':
-                prefix = "{root}/newstest2014.clean".format(root=root)
-            elif split == 'test':
-                prefix = "{root}/newstest2016.clean".format(root=root)
-
-            options['prefix'] = prefix
         super(OpenSubtitles2016, self).__init__(**options)
-        if load_data:
-            self.load_data()

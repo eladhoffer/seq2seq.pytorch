@@ -3,9 +3,10 @@ from __future__ import unicode_literals
 import logging
 import sys
 import os
+from copy import copy
 import torch
 from collections import OrderedDict
-from text import LinedTextDataset
+from .text import LinedTextDataset
 
 sys.path.append(os.path.abspath(os.path.join(
     os.path.dirname(__file__), '..', '..')))
@@ -133,16 +134,11 @@ class MultiLanguageDataset(object):
             self.datasets[l] = LinedTextDataset(
                 self.input_files[l], transform=transform)
 
-    def split(self, ratio=0.5):
-        data_size = len(self)
-        num_remove = 30000  # int(float(data_size) * ratio)
-        num_keep = data_size - num_remove
-        data1 = copy(self)
-        data2 = copy(self)
-        for d in self.languages:
-            data1.datasets[d] = self.datasets[d].narrow(0, num_keep)
-            data2.datasets[d] = self.datasets[d].narrow(num_keep, num_remove)
-        return data1, data2
+    def select_range(self, start, end):
+        new_dataset = copy(self)
+        for l, d in new_dataset.datasets.items():
+            new_dataset.datasets[l] = d.select_range(start, end)
+        return new_dataset
 
     def __getitem__(self, index):
         if isinstance(index, slice):
@@ -156,7 +152,9 @@ class MultiLanguageDataset(object):
         return len(self.datasets[self.languages[0]])
 
     def get_loader(self, languages=None, batch_size=1, shuffle=False, sampler=None, num_workers=0,
-                   collate_fn=create_padded_batch(), pin_memory=False, drop_last=False):
+                   max_length=100, batch_first=False, pin_memory=False, drop_last=False):
+        collate_fn = create_padded_batch(
+            max_length=max_length, batch_first=batch_first)
         languages = languages or self.languages
         return torch.utils.data.DataLoader(self,
                                            batch_size=batch_size,

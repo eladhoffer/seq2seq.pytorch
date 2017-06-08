@@ -5,7 +5,7 @@ import string
 import codecs
 import sys
 import torch
-from datasets import MultiLanguageDataset, WMT16_de_en
+from datasets import MultiLanguageDataset, WMT16_de_en, OpenSubtitles2016
 from torch.utils.data import DataLoader
 
 if __name__ == '__main__':
@@ -24,8 +24,9 @@ if __name__ == '__main__':
     # langs = ['en', 'de']
     #
     # dataset = MultiLanguageDataset(prefix=prefix, languages=langs)
-    train_data = WMT16_de_en(split='train')
-    dev_data = WMT16_de_en(split='dev')
+    # train_data = WMT16_de_en(split='train')
+    # dev_data = WMT16_de_en(split='dev')
+    data = OpenSubtitles2016(root='/home/ehoffer/PyTorch/seq2seq.pytorch/datasets/data/OpenSubtitles2016', languages=['en','he'])
 
 
 # check_single_batch = DataLoader(datasets[i], batch_size=32, collate_fn=create_padded_batch())

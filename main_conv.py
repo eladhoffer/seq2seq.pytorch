@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import argparse
 import os
 import torch.nn as nn
@@ -8,7 +9,6 @@ from torch.autograd import Variable
 from datetime import datetime
 from models.recurrent import RecurentEncoder, RecurentDecoder
 from models.gnmt import GNMT
-from models.onmt import ONMTSeq2Seq
 from models.conv import ConvSeq2Seq
 from models.seq2seq import Seq2Seq
 from tools.utils import *
@@ -79,9 +79,6 @@ def main():
     else:
         args.gpus = None
 
-    # # Data loading code
-    # train_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='train')
-    # val_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='dev')
     # Data loading code
     train_data = WMT16_de_en(
         root='/media/drive/Datasets/wmt16_de_en', split='train')
@@ -89,14 +86,9 @@ def main():
         root='/media/drive/Datasets/wmt16_de_en', split='dev')
     src_tok, target_tok = train_data.tokenizers.values()
 
-    # encoder = RecurentEncoder(src_tok.vocab_size(),
-    #                           hidden_size=128, num_layers=1, bidirectional=True)
-    # decoder = RecurentDecoder(target_tok.vocab_size(),
-    #                           hidden_size=128, num_layers=2)
-
-    train_loader = train_data.get_loader(batch_size=args.batch_size,
+    train_loader = train_data.get_loader(batch_size=args.batch_size, batch_first=True,
                                          shuffle=True, num_workers=args.workers)
-    val_loader = val_data.get_loader(batch_size=args.batch_size,
+    val_loader = val_data.get_loader(batch_size=args.batch_size, batch_first=True,
                                      shuffle=False, num_workers=args.workers)
     regime = {e: {'optimizer': args.optimizer,
                   'lr': args.lr * (0.5 ** e),
@@ -110,13 +102,13 @@ def main():
     criterion.type(args.type)
 
     # model = Seq2Seq(encoder=encoder, decoder=decoder)
-    model = ONMTSeq2Seq(target_tok.vocab_size())
-    print(model)
+    model = ConvSeq2Seq(target_tok.vocab_size())
     trainer = Seq2SeqTrainer(model,
                              criterion=criterion,
                              optimizer=torch.optim.SGD,
                              grad_clip=args.grad_clip,
                              regime=regime,
+                             batch_first=True,
                              print_freq=args.print_freq)
     num_parameters = sum([l.nelement() for l in model.parameters()])
     logging.info("number of parameters: %d", num_parameters)
@@ -141,11 +133,6 @@ def main():
 
     for epoch in range(args.start_epoch, args.epochs):
 
-        # train for one epoch
-        train_loss, train_perplexity = trainer.optimize(train_loader)
-
-        # evaluate on validation set
-        val_loss, val_perplexity = trainer.evaluate(val_loader)
 
         model.eval()
         for i in range(10):
@@ -153,7 +140,7 @@ def main():
             src_seq = Variable(src_seq.cuda(), volatile=True)
             target_seq = Variable(target_seq.cuda(), volatile=True)
             pred_seq = model(src_seq.unsqueeze(
-                1), target_seq[:-1].unsqueeze(1))
+                0), target_seq[:-1].unsqueeze(0))
             _, pred_seq = pred_seq.max(2)
             pred_seq = pred_seq.view(-1)
             logging.info('\n Example {0}:'
@@ -165,6 +152,11 @@ def main():
                                  target=target_tok.detokenize(
                                      target_seq[1:].data),
                                  pred=target_tok.detokenize(pred_seq.data[:])))
+        # train for one epoch
+        train_loss, train_perplexity = trainer.optimize(train_loader)
+
+        # evaluate on validation set
+        val_loss, val_perplexity = trainer.evaluate(val_loader)
 
         # remember best prec@1 and save checkpoint
         is_best = val_perplexity < best_perplexity

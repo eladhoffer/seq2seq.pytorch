@@ -13,9 +13,15 @@ from .utils import *
 
 
 class Seq2SeqTrainer(object):
-    """docstring for Trainer."""
+    """class for Trainer."""
 
-    def __init__(self, model, criterion, optimizer=None, print_freq=10, regime=None, grad_clip=None, cuda=True):
+    def __init__(self, model, criterion,
+                 optimizer=None,
+                 print_freq=10,
+                 regime=None,
+                 grad_clip=None,
+                 batch_first=False,
+                 cuda=True):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
         self.criterion = criterion
@@ -25,7 +31,43 @@ class Seq2SeqTrainer(object):
         self.regime = regime
         self.cuda = cuda
         self.print_freq = print_freq
+        self.batch_first = batch_first
         self.lowet_perplexity = None
+
+    def iterate(self, src, target, training=True):
+        src, src_length = src
+        target, target_length = target
+        if self.cuda:
+            src = src.cuda()
+            target = target.cuda()
+        src_var = Variable(src, volatile=not training)
+        target_var = Variable(target, volatile=not training)
+
+        # compute output
+
+        if self.batch_first:
+            output = self.model(src_var, target_var[:, :-1])
+            target_labels = target_var[:, 1:]
+        else:
+            output = self.model(src_var, target_var[:-1])
+            target_labels = target_var[1:]
+
+
+        T, B = output.size(0), output.size(1)
+        num_words = sum(target_length) - B
+
+        loss = self.criterion(output.contiguous().view(T * B, -1),
+                              target_labels.contiguous().view(-1))
+        loss /= num_words
+
+        if training:
+            # compute gradient and do SGD step
+            self.optimizer.zero_grad()
+            loss.backward()
+            if self.grad_clip is not None:
+                clip_grad_norm(self.model.parameters(), self.grad_clip)
+            self.optimizer.step()
+        return loss.data[0], num_words
 
     def feed_data(self, data_loader, training=True):
         if training:
@@ -36,34 +78,16 @@ class Seq2SeqTrainer(object):
         perplexity = AverageMeter()
 
         end = time.time()
-        for i, ((src, src_length), (target, target_length)) in enumerate(data_loader):
+        for i, (src, target) in enumerate(data_loader):
             # measure data loading time
             data_time.update(time.time() - end)
-            if self.cuda:
-                src = src.cuda()
-                target = target.cuda()
-            src_var = Variable(src, volatile=not training)
-            target_var = Variable(target, volatile=not training)
 
-            # compute output
-            output = self.model(src_var, target_var[:-1])
+            # do a train/evaluate iteration
+            loss, num_words = self.iterate(src, target, training=training)
 
-            T, B = output.size(0), output.size(1)
-            num_words = sum(target_length) - B
-            loss = self.criterion(output.view(T * B, -1).contiguous(),
-                                  target_var[1:].contiguous().view(-1))
-            loss /= num_words
             # measure accuracy and record loss
-            losses.update(loss.data[0], num_words)
-            perplexity.update(math.exp(loss.data[0]), num_words)
-
-            if training:
-                # compute gradient and do SGD step
-                self.optimizer.zero_grad()
-                loss.backward()
-                if self.grad_clip is not None:
-                    clip_grad_norm(self.model.parameters(), self.grad_clip)
-                self.optimizer.step()
+            losses.update(loss, num_words)
+            perplexity.update(math.exp(loss), num_words)
 
             # measure elapsed time
             batch_time.update(time.time() - end)

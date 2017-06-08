@@ -7,7 +7,7 @@ import logging
 import sys
 from collections import Counter
 import torch
-from config import *
+from .config import *
 
 sys.path.append(os.path.abspath(os.path.join(
     os.path.dirname(__file__), './subword-nmt')))
@@ -124,7 +124,6 @@ class BPETokenizer(Tokenizer):
                 full_vocab += learn_bpe.get_vocabulary(f)
         vocab_list = ['{0} {1}'.format(key, freq)
                       for (key, freq) in full_vocab.items()]
-        # pdb.set_trace()
         # learn BPE on combined vocabulary
         with codecs.open(self.codes_file, 'w', encoding='UTF-8') as output:
             learn_bpe.main(vocab_list, output, self.num_symbols,
@@ -135,7 +134,7 @@ class BPETokenizer(Tokenizer):
         detok_string = super(BPETokenizer, self).detokenize(inputs, delimiter)
         detok_string = detok_string.decode(
             'utf-8').replace(self.seperator + ' ', '')
-        detok_string = detok_string.encode('utf-8').strip()
+        # detok_string = detok_string.encode('utf-8').strip()
         return detok_string
 
 

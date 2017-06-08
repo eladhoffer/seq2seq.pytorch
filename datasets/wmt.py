@@ -6,7 +6,7 @@ sys.path.append(os.path.abspath(os.path.join(
     os.path.dirname(__file__), '..', '..')))
 from tools.config import *
 from copy import deepcopy
-from multi_language import MultiLanguageDataset
+from .multi_language import MultiLanguageDataset
 
 
 class WMT16_de_en(MultiLanguageDataset):

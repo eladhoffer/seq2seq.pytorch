@@ -44,37 +44,7 @@ class LinedTextDataset(Dataset):
     def __len__(self):
         return len(self.items)
 
-    def narrow(self, start, num):
+    def select_range(self, start, end):
         new_dataset = copy(self)
-        new_dataset.items = new_dataset.items[start:(start + num - 1)]
+        new_dataset.items = new_dataset.items[start:end]
         return new_dataset
-
-#
-# class AlignedDatasets(Dataset):
-#
-#     def __init__(self, datasets):
-#         self.datasets = datasets
-#
-#     def __getitem__(self, index):
-#         items = []
-#         for dataset in self.datasets:
-#             items.append(dataset[index])
-#         return tuple(items)
-#
-#     def __len__(self):
-#         return len(self.datasets[0])
-#
-#
-# class NarrowDataset(Dataset):
-#
-#     def __init__(self, dataset, first_item=0, last_item=None):
-#         self.dataset = dataset
-#         last_item = last_item or len(self.dataset) - 1
-#         self.first_item = min(max(first_item, 0), len(self.dataset) - 1)
-#         self.last_item = min(max(last_item, 0), len(self.dataset) - 1)
-#
-#     def __getitem__(self, index):
-#         return self.dataset[index + self.first_item]
-#
-#     def __len__(self):
-#         return self.last_item - self.first_item + 1
