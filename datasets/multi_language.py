@@ -20,7 +20,7 @@ __tokenizers = {
 }
 
 
-def create_padded_batch(max_length=100):
+def create_padded_batch(max_length=100, batch_first=False):
     def collate(seqs):
         if not torch.is_tensor(seqs[0]):
             return tuple([collate(s) for s in zip(*seqs)])
@@ -30,6 +30,8 @@ def create_padded_batch(max_length=100):
         for i, s in enumerate(seqs):
             end_seq = lengths[i]
             seq_tensor[:end_seq, i].copy_(s[:end_seq])
+        if batch_first:
+            seq_tensor = seq_tensor.t()
         return (seq_tensor, lengths)
     return collate
 

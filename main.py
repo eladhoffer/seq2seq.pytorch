@@ -108,7 +108,9 @@ def main():
     trainer = Seq2SeqTrainer(model,
                              criterion=criterion,
                              optimizer=torch.optim.SGD,
-                             regime=regime)
+                             grad_clip=args.grad_clip,
+                             regime=regime,
+                             print_freq=args.print_freq)
     num_parameters = sum([l.nelement() for l in model.parameters()])
     logging.info("number of parameters: %d", num_parameters)
 

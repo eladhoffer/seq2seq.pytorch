@@ -17,15 +17,6 @@ class MaskedConv1d(nn.Conv1d):
                                            groups=groups, bias=bias)
 
     def forward(self, inputs):
-        # causal_padding = (self.kernel_size - 1) * self.dilation
-
-        # if self.causal:
-        #     padded = F.pad(inputs.unsqueeze(3),
-        #                    (causal_padding, 0, 0, 0)).squeeze(3)
-        #     output = F.conv1d(padded, self.weight, self.bias, self.stride,
-        #                       self.padding, self.dilation, self.groups)
-        # else:
-
         output = F.conv1d(inputs, self.weight, self.bias, self.stride,
                           self.padding, self.dilation, self.groups)
         return output[:, :, :inputs.size(2)]
@@ -100,10 +91,7 @@ class ByteNet(nn.Sequential):
                 self.add_module('block%s_%s' % (s, r),
                                 block(num_channels, kernel_size=kernel_size, dilation=r, causal=causal))
 
-m = ByteNet().cuda()
-x = torch.autograd.Variable(torch.rand(16, 512, 500).cuda())
-y = m(x)
-ws = sum([w.nelement() for w in m.parameters()])
+
 #
 # class MU(nn.Module):
 #
