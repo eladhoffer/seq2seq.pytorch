@@ -12,7 +12,7 @@ import math
 from .utils import *
 
 
-class Seq2SeqTrainer(nn.Module):
+class Seq2SeqTrainer(object):
     """docstring for Trainer."""
 
     def __init__(self, model, criterion, optimizer=None, print_freq=10, regime=None, grad_clip=None, cuda=True):
@@ -62,7 +62,7 @@ class Seq2SeqTrainer(nn.Module):
                 self.optimizer.zero_grad()
                 loss.backward()
                 if self.grad_clip is not None:
-                    clip_grad_norm(self.parameters(), self.grad_clip)
+                    clip_grad_norm(self.model.parameters(), self.grad_clip)
                 self.optimizer.step()
 
             # measure elapsed time

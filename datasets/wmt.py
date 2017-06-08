@@ -28,7 +28,7 @@ class WMT16_de_en(MultiLanguageDataset):
         train_prefix = "{root}/train.clean".format(root=root)
         options = dict(
             prefix=train_prefix,
-            languages=['de', 'en'],
+            languages=['en', 'de'],
             tokenization=tokenization,
             num_symbols=num_symbols,
             shared_vocab=shared_vocab,
