@@ -18,9 +18,12 @@ class Seq2SeqTrainer(object):
     def __init__(self, model, criterion,
                  optimizer=None,
                  print_freq=10,
+                 save_freq=1000,
                  regime=None,
                  grad_clip=None,
                  batch_first=False,
+                 save_info={},
+                 save_path='.',
                  cuda=True):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
@@ -28,6 +31,9 @@ class Seq2SeqTrainer(object):
         self.optimizer = optimizer(self.model.parameters(), lr=0.1)
         self.grad_clip = grad_clip
         self.epoch = 0
+        self.save_info = save_info
+        self.save_path = save_path
+        self.save_freq = save_freq
         self.regime = regime
         self.cuda = cuda
         self.print_freq = print_freq
@@ -51,7 +57,6 @@ class Seq2SeqTrainer(object):
         else:
             output = self.model(src_var, target_var[:-1])
             target_labels = target_var[1:]
-
 
         T, B = output.size(0), output.size(1)
         num_words = sum(target_length) - B
@@ -103,6 +108,8 @@ class Seq2SeqTrainer(object):
                                  phase='TRAINING' if training else 'EVALUATING',
                                  batch_time=batch_time,
                                  data_time=data_time, loss=losses, perplexity=perplexity))
+            if i % self.save_freq == 0:
+                self.save()
 
         return losses.avg, perplexity.avg
 
@@ -132,14 +139,17 @@ class Seq2SeqTrainer(object):
         else:
             logging.error('invalid checkpoint: {}'.format(filename))
 
-    def save(self, filename='checkpoint.pth.tar', path='.', is_best=False, save_all=False):
+    def save(self, filename='checkpoint.pth.tar', is_best=False, save_all=False):
         state = {
             'epoch': self.epoch,
+            'model': self.model,
             'state_dict': self.model.state_dict(),
             'perplexity': self.lowet_perplexity,
             'regime': self.regime
         }
-        filename = os.path.join(path, filename)
+        state = dict(list(state.items()) + list(self.save_info.items()))
+        filename = os.path.join(self.save_path, filename)
+        logging.info('saving model to %s' % filename)
         torch.save(state, filename)
         if is_best:
             shutil.copyfile(filename, os.path.join(path, 'model_best.pth.tar'))

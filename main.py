@@ -112,10 +112,15 @@ def main():
     # model = Seq2Seq(encoder=encoder, decoder=decoder)
     model = ONMTSeq2Seq(target_tok.vocab_size())
     print(model)
+    torch.save({'src': src_tok, 'target': target_tok},
+               os.path.join(save_path, 'tokenizers'))
     trainer = Seq2SeqTrainer(model,
                              criterion=criterion,
                              optimizer=torch.optim.SGD,
                              grad_clip=args.grad_clip,
+                             save_path=save_path,
+                             save_info={'tokenizers': train_data.tokenizers,
+                                        'config': args},
                              regime=regime,
                              print_freq=args.print_freq)
     num_parameters = sum([l.nelement() for l in model.parameters()])
