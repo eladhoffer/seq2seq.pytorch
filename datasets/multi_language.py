@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 import logging
 import sys
 import os
-from copy import copy
+from copy import copy, deepcopy
 import torch
 from collections import OrderedDict
 from .text import LinedTextDataset
@@ -136,8 +136,8 @@ class MultiLanguageDataset(object):
 
     def select_range(self, start, end):
         new_dataset = copy(self)
-        for l, d in new_dataset.datasets.items():
-            new_dataset.datasets[l] = d.select_range(start, end)
+        new_dataset.datasets = dict(
+            {l: d.select_range(start, end) for (l, d) in self.datasets.items()})
         return new_dataset
 
     def __getitem__(self, index):

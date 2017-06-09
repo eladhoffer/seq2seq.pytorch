@@ -13,7 +13,7 @@ from models.conv import ConvSeq2Seq
 from models.seq2seq import Seq2Seq
 from tools.utils import *
 from tools.trainer import Seq2SeqTrainer
-from datasets import MultiLanguageDataset, WMT16_de_en
+from datasets import MultiLanguageDataset, WMT16_de_en, OpenSubtitles2016
 from tools.config import *
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
@@ -83,10 +83,15 @@ def main():
     # train_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='train')
     # val_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='dev')
     # Data loading code
-    train_data = WMT16_de_en(
-        root='/media/drive/Datasets/wmt16_de_en', split='train')
-    val_data = WMT16_de_en(
-        root='/media/drive/Datasets/wmt16_de_en', split='dev')
+    # train_data = WMT16_de_en(
+    #     root='/media/drive/Datasets/wmt16_de_en', split='train')
+    # val_data = WMT16_de_en(
+    #     root='/media/drive/Datasets/wmt16_de_en', split='dev')
+    train_data = OpenSubtitles2016(
+        root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'])
+    val_data = train_data.select_range(len(train_data)-30000, len(train_data)-1)
+    train_data = train_data.select_range(0, len(train_data)-30001)
+
     src_tok, target_tok = train_data.tokenizers.values()
 
     # encoder = RecurentEncoder(src_tok.vocab_size(),
@@ -110,7 +115,7 @@ def main():
     criterion.type(args.type)
 
     # model = Seq2Seq(encoder=encoder, decoder=decoder)
-    model = ONMTSeq2Seq(target_tok.vocab_size())
+    model = ONMTSeq2Seq(target_tok.vocab_size(), tie_enc_dec_embedding=True)
     print(model)
     torch.save({'src': src_tok, 'target': target_tok},
                os.path.join(save_path, 'tokenizers'))

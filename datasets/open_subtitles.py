@@ -15,7 +15,6 @@ class OpenSubtitles2016(MultiLanguageDataset):
     def __init__(self,
                  root,
                  languages,
-                 split='train',
                  tokenization='bpe',
                  num_symbols=32000,
                  shared_vocab=True,

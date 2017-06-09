@@ -23,4 +23,5 @@ class Seq2Seq(nn.Module):
         output, state = self.encode(input_encoder)
         if hasattr(self.modules, 'bridge'):
             input_decoder, state = self.bridge(input_decoder, state)
-        return self.decode(input_decoder, state)
+        output, state =  self.decode(input_decoder, state)
+        return output

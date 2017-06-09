@@ -26,7 +26,8 @@ if __name__ == '__main__':
     # dataset = MultiLanguageDataset(prefix=prefix, languages=langs)
     # train_data = WMT16_de_en(split='train')
     # dev_data = WMT16_de_en(split='dev')
-    data = OpenSubtitles2016(root='/home/ehoffer/PyTorch/seq2seq.pytorch/datasets/data/OpenSubtitles2016', languages=['en','he'])
+    data = OpenSubtitles2016(
+        root='/home/ehoffer/PyTorch/seq2seq.pytorch/datasets/data/OpenSubtitles2016', languages=['en', 'he'])
 
 
 # check_single_batch = DataLoader(datasets[i], batch_size=32, collate_fn=create_padded_batch())

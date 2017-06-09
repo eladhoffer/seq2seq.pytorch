@@ -22,7 +22,7 @@ class Encoder(nn.Module):
         input_size = hidden_size
 
         super(Encoder, self).__init__()
-        self.word_lut = nn.Embedding(vocab_size,
+        self.embedder = nn.Embedding(vocab_size,
                                      hidden_size,
                                      padding_idx=0)
         self.rnn = nn.LSTM(input_size, hidden_size,
@@ -34,9 +34,9 @@ class Encoder(nn.Module):
         if isinstance(input, tuple):
             # Lengths data is wrapped inside a Variable.
             lengths = input[1].data.view(-1).tolist()
-            emb = pack(self.word_lut(input[0]), lengths)
+            emb = pack(self.embedder(input[0]), lengths)
         else:
-            emb = self.word_lut(input)
+            emb = self.embedder(input)
         outputs, hidden_t = self.rnn(emb, hidden)
         if isinstance(input, tuple):
             outputs = unpack(outputs)[0]
@@ -84,7 +84,7 @@ class Decoder(nn.Module):
             input_size += hidden_size
 
         super(Decoder, self).__init__()
-        self.word_lut = nn.Embedding(vocab_size,
+        self.embedder = nn.Embedding(vocab_size,
                                      hidden_size,
                                      padding_idx=0)
         self.rnn = StackedLSTM(num_layers, input_size,
@@ -92,12 +92,13 @@ class Decoder(nn.Module):
         self.attn = GlobalAttention(hidden_size)
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_size, vocab_size)
-
+        if tie_embedding:
+            self.classifier.weight = self.embedder.weight
 
         self.hidden_size = hidden_size
 
     def forward(self, input, hidden, context, init_output):
-        emb = self.word_lut(input)
+        emb = self.embedder(input)
 
         # n.b. you can increase performance if you compute W_ih * x for all
         # iterations in parallel, but that's only possible if
@@ -121,15 +122,19 @@ class Decoder(nn.Module):
 
         return x, hidden, attn
 
-class ONMTSeq2Seq(nn.Module):
+
+class ONMTSeq2Seq(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=256,
-                 num_layers=2, bias=True, dropout=0):
-        super(ONMTSeq2Seq, self).__init__()
-        self.encoder = Encoder(vocab_size, hidden_size=hidden_size,
-                               num_layers=num_layers, bias=bias, dropout=dropout)
-        self.decoder = Decoder(vocab_size, hidden_size=hidden_size,
-                               num_layers=num_layers, bias=bias, dropout=dropout)
+                 num_layers=2, bias=True, dropout=0, tie_enc_dec_embedding=False):
+        encoder = Encoder(vocab_size, hidden_size=hidden_size,
+                          num_layers=num_layers, bias=bias, dropout=dropout)
+        decoder = Decoder(vocab_size, hidden_size=hidden_size, tie_embedding=tie_enc_dec_embedding,
+                          num_layers=num_layers, bias=bias, dropout=dropout)
+        super(ONMTSeq2Seq, self).__init__(encoder, decoder)
+
+        if tie_enc_dec_embedding:
+            self.encoder.embedder.weight = self.decoder.embedder.weight
 
     def make_init_decoder_output(self, context):
         batch_size = context.size(1)
@@ -146,13 +151,16 @@ class ONMTSeq2Seq(nn.Module):
         else:
             return h
 
-    def forward(self, input_encoder, input_decoder):
-        enc_hidden, context = self.encoder(input_encoder)
+    def encode(self, inputs, state=None):
+        enc_hidden, context = self.encoder(inputs)
         init_output = self.make_init_decoder_output(context)
 
         enc_hidden = (self._fix_enc_hidden(enc_hidden[0]),
                       self._fix_enc_hidden(enc_hidden[1]))
+        return enc_hidden, (enc_hidden, context, init_output)
 
-        out, dec_hidden, _attn = self.decoder(input_decoder, enc_hidden,
-                                              context, init_output)
-        return out
+    def decode(self, inputs, state=None):
+        enc_hidden, context, init_output = state
+        out, dec_hidden, _attn = self.decoder(inputs, enc_hidden,
+                            context, init_output)
+        return out, (dec_hidden, context, init_output)
