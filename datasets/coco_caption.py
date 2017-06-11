@@ -4,6 +4,7 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import string
 from pycocotools.coco import COCO
+from .text import LinedTextDataset
 from random import randrange
 from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -25,7 +26,38 @@ __EOS_TOKEN = 'EOS'
 __normalize = {'mean': [0.485, 0.456, 0.406],
                'std': [0.229, 0.224, 0.225]}
 
+class Captions(LinedTextDataset):
+    def __init__(self, filename, transform=None, load_mem=False):
+        self.filename = filename
+        self.load_mem = load_mem
+        self.transform = transform
+        coco = COCO(filename)
+        ids = list(coco.imgs.keys())
+        if self.load_mem:
+            self.items = []
+            for img_id in ids:
+                ann_ids = coco.getAnnIds(imgIds=img_id)
+                self.items.append(coco.loadAnns(ann_ids))
+        else:
+            self.items = ids = coco.imgs.keys()
 
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[idx] for idx in range(index.start or 0, index.stop or len(self), index.step or 1)]
+coco = COCO(annFile)
+ids = coco.imgs.keys()
+for img_id in ids:
+    ann_ids = coco.getAnnIds(imgIds=img_id)
+    anns = coco.loadAnns(ann_ids)
+        if self.load_mem:
+            item = self.items[index]
+        else:
+            with codecs.open(self.filename, encoding='UTF-8') as f:
+                f.seek(self.items[index])
+                item = f.readline()
+        if self.transform is not None:
+            item = self.transform(item)
+        return item
 def simple_tokenize(captions):
     processed = []
     for j, s in enumerate(captions):

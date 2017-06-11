@@ -17,10 +17,14 @@ import apply_bpe
 
 class Tokenizer(object):
 
-    def __init__(self, max_length=500, vocab_file=None, vocab_threshold=2):
+    def __init__(self, max_length=500, vocab_file=None,
+                 additional_tokens=None,
+                 vocab_threshold=2):
         self.max_length = max_length
         self.vocab_threshold = vocab_threshold
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
+        if additional_tokens is not None:
+            self.special_tokens += additional_tokens
         self.__word2idx = {}
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
