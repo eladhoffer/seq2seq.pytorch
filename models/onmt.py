@@ -40,7 +40,7 @@ class Encoder(nn.Module):
         outputs, hidden_t = self.rnn(emb, hidden)
         if isinstance(input, tuple):
             outputs = unpack(outputs)[0]
-        return hidden_t, outputs
+        return outputs, hidden_t
 
 
 class StackedLSTM(nn.Module):
@@ -97,14 +97,16 @@ class Decoder(nn.Module):
 
         self.hidden_size = hidden_size
 
-    def forward(self, input, hidden, context, init_output):
+    def forward(self, input, context):
+        context, hidden = context
         emb = self.embedder(input)
 
         # n.b. you can increase performance if you compute W_ih * x for all
         # iterations in parallel, but that's only possible if
         # self.input_feed=False
         outputs = []
-        output = init_output
+        output = Variable(input.data.new(input.size(1),
+                                          self.hidden_size).zero_(), requires_grad=False)
         for emb_t in emb.split(1):
             emb_t = emb_t.squeeze(0)
             if self.input_feed:
@@ -120,7 +122,7 @@ class Decoder(nn.Module):
         x = self.classifier(x)
         x = x.view(input.size(0), input.size(1), -1)
 
-        return x, hidden, attn
+        return x, (context, hidden)
 
 
 class ONMTSeq2Seq(Seq2Seq):
@@ -136,31 +138,17 @@ class ONMTSeq2Seq(Seq2Seq):
         if tie_enc_dec_embedding:
             self.encoder.embedder.weight = self.decoder.embedder.weight
 
-    def make_init_decoder_output(self, context):
-        batch_size = context.size(1)
-        h_size = (batch_size, self.decoder.hidden_size)
-        return Variable(context.data.new(*h_size).zero_(), requires_grad=False)
-
-    def _fix_enc_hidden(self, h):
+    def bridge(self, context):
+        context, hidden = context
         #  the encoder hidden is  (layers*directions) x batch x dim
         #  we need to convert it to layers x batch x (directions*dim)
-        if self.encoder.num_directions == 2:
-            return h.view(h.size(0) // 2, 2, h.size(1), h.size(2)) \
-                    .transpose(1, 2).contiguous() \
-                    .view(h.size(0) // 2, h.size(1), h.size(2) * 2)
-        else:
-            return h
-
-    def encode(self, inputs, state=None):
-        enc_hidden, context = self.encoder(inputs)
-        init_output = self.make_init_decoder_output(context)
-
-        enc_hidden = (self._fix_enc_hidden(enc_hidden[0]),
-                      self._fix_enc_hidden(enc_hidden[1]))
-        return enc_hidden, (enc_hidden, context, init_output)
-
-    def decode(self, inputs, state=None):
-        enc_hidden, context, init_output = state
-        out, dec_hidden, _attn = self.decoder(inputs, enc_hidden,
-                            context, init_output)
-        return out, (dec_hidden, context, init_output)
+        new_hidden = []
+        for h in hidden:
+            if self.encoder.num_directions == 2:
+                new_h = h.view(h.size(0) // 2, 2, h.size(1), h.size(2)) \
+                        .transpose(1, 2).contiguous() \
+                        .view(h.size(0) // 2, h.size(1), h.size(2) * 2)
+            else:
+                new_h = h
+            new_hidden.append(new_h)
+        return (context, tuple(new_hidden))

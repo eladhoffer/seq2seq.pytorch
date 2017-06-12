@@ -120,7 +120,6 @@ class Seq2SeqTrainer(object):
         # switch to train mode
         self.model.train()
         output = self.feed_data(data_loader, training=True)
-        self.epoch += 1
         return output
 
     def evaluate(self, data_loader):

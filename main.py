@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 import argparse
 import os
 import torch.nn as nn
@@ -15,6 +17,8 @@ from tools.utils import *
 from tools.trainer import Seq2SeqTrainer
 from datasets import MultiLanguageDataset, WMT16_de_en, OpenSubtitles2016
 from tools.config import *
+from tools.translator import Translator
+
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
 
@@ -79,18 +83,18 @@ def main():
     else:
         args.gpus = None
 
-    # # Data loading code
-    # train_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='train')
-    # val_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='dev')
+    # Data loading code
+    train_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='train')
+    val_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='dev')
     # Data loading code
     # train_data = WMT16_de_en(
     #     root='/media/drive/Datasets/wmt16_de_en', split='train')
     # val_data = WMT16_de_en(
     #     root='/media/drive/Datasets/wmt16_de_en', split='dev')
-    train_data = OpenSubtitles2016(
-        root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'])
-    val_data = train_data.select_range(len(train_data)-30000, len(train_data)-1)
-    train_data = train_data.select_range(0, len(train_data)-30001)
+    # train_data = OpenSubtitles2016(
+    #     root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'])
+    # val_data = train_data.select_range(len(train_data)-30000, len(train_data)-1)
+    # train_data = train_data.select_range(0, len(train_data)-30001)
 
     src_tok, target_tok = train_data.tokenizers.values()
 
@@ -115,7 +119,8 @@ def main():
     criterion.type(args.type)
 
     # model = Seq2Seq(encoder=encoder, decoder=decoder)
-    model = ONMTSeq2Seq(target_tok.vocab_size(), tie_enc_dec_embedding=True)
+    # model = ONMTSeq2Seq(target_tok.vocab_size(), tie_enc_dec_embedding=True)
+    model = GNMT(target_tok.vocab_size())
     print(model)
     torch.save({'src': src_tok, 'target': target_tok},
                os.path.join(save_path, 'tokenizers'))
@@ -143,38 +148,36 @@ def main():
             checkpoint_file = os.path.join(
                 checkpoint_file, 'model_best.pth.tar')
         if os.path.isfile(checkpoint_file):
-            trainer.load(args.evaluate)
+            trainer.load(checkpoint_file)
         else:
             logging.error("no checkpoint found at '%s'", args.resume)
 
     logging.info('training regime: %s', regime)
 
     for epoch in range(args.start_epoch, args.epochs):
-
+        trainer.epoch = epoch
         # train for one epoch
         train_loss, train_perplexity = trainer.optimize(train_loader)
 
         # evaluate on validation set
         val_loss, val_perplexity = trainer.evaluate(val_loader)
 
-        model.eval()
-        for i in range(10):
-            src_seq, target_seq = val_data[i]
-            src_seq = Variable(src_seq.cuda(), volatile=True)
-            target_seq = Variable(target_seq.cuda(), volatile=True)
-            pred_seq = model(src_seq.unsqueeze(
-                1), target_seq[:-1].unsqueeze(1))
-            _, pred_seq = pred_seq.max(2)
-            pred_seq = pred_seq.view(-1)
-            logging.info('\n Example {0}:'
-                         '\n \t Source: {src}'
-                         '\n \t Target: {target}'
-                         '\n \t Prediction: {pred}'
-                         .format(i,
-                                 src=src_tok.detokenize(src_seq.data[1:]),
-                                 target=target_tok.detokenize(
-                                     target_seq[1:].data),
-                                 pred=target_tok.detokenize(pred_seq.data[:])))
+        translation_model = Translator(model,
+                                       src_tok=src_tok,
+                                       target_tok=target_tok,
+                                       beam_size=5,
+                                       length_normalization_factor=0,
+                                       cuda=True)
+        # for i in range(10):
+        #     src_seq, target_seq = val_data[i]
+        #     src_seq = src_tok.detokenize(src_seq[1:-1])
+        #     target_seq = target_tok.detokenize(target_seq[1:-1])
+        #     pred = translation_model.translate(src_seq)
+        #     logging.info('\n Example %s:'
+        #                  '\n \t Source: %s'
+        #                  '\n \t Target: %s'
+        #                  '\n \t Prediction: %s'
+        #                  % (i, src_seq, target_seq, pred))
 
         # remember best prec@1 and save checkpoint
         is_best = val_perplexity < best_perplexity

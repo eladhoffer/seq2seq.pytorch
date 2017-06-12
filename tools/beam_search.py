@@ -202,6 +202,8 @@ def merge_states(state_list):
     if isinstance(state_list[0], tuple):
         return tuple([merge_states(s) for s in zip(*state_list)])
     else:
+        if state_list[0] is None:
+            return None
         batch_dim = 1 if state_list[0].dim() == 3 else 0
         return torch.cat(state_list, batch_dim)
 
@@ -210,5 +212,7 @@ def select_state(state, i):
     if isinstance(state, tuple):
         return tuple(select_state(s, i) for s in state)
     else:
+        if state is None:
+            return None
         batch_dim = 1 if state.dim() == 3 else 0
         return state.narrow(batch_dim, i, 1)
