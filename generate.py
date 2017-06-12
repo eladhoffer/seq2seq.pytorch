@@ -5,22 +5,16 @@ from torch.autograd import Variable
 from tools.config import EOS, BOS
 from tools.beam_search import SequenceGenerator
 import math
-from tools.quantize import quantize_tensor
+from tools.quantize import quantize_model, dequantize_model
 
 cuda = False
 checkpoint = torch.load('./results/en_he_onmt/checkpoint.pth.tar')
-# checkpoint['state_dict'] = quantize_state_dict(checkpoint['state_dict'])
-# # checkpoint['model'].type('torch.ByteTensor')
-# # checkpoint['model'].load_state_dict(checkpoint['state_dict'])
-# # checkpoint['state_dict'] = checkpoint['model'].get_state_dict()
-# del checkpoint['model']
-# torch.save(checkpoint['state_dict'], './results/en_he_onmt/checkpoint_quantized.pth.tar')
-# checkpoint['model'].load_state_dict(checkpoint['state_dict'])
-# checkpoint['state_dict'] = dequantize_state_dict(checkpoint['state_dict'])
-
-model = checkpoint['model']
-# model.type('torch.ByteTensor')
-# model.float()
+# model = checkpoint['model']
+# quantize_model(model)
+# checkpoint['state_dict'] = checkpoint['model'].state_dict()
+# torch.save(checkpoint,
+#            './results/en_he_onmt/checkpoint_quantized.pth.tar')
+# dequantize_model(model)
 src_tok, target_tok = checkpoint['tokenizers'].values()
 bos = Variable(torch.LongTensor([BOS]).view(-1, 1))
 if cuda:
@@ -47,7 +41,8 @@ while True:
         print(_attn)
         return out, (dec_hidden, context, init_output)
 
-    generator = SequenceGenerator(model=model.decode, beam_size=5, length_normalization_factor=0.6)
+    generator = SequenceGenerator(
+        model=model.decode, beam_size=5, length_normalization_factor=0.6)
 
     pred, logporob = generator.beam_search(bos, state)
     sentences = [torch.LongTensor(s[:-1]) for s in pred]

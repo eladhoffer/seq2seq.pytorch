@@ -7,6 +7,7 @@ from copy import copy, deepcopy
 import torch
 from collections import OrderedDict
 from .text import LinedTextDataset
+from torch.nn.utils.rnn import pack_padded_sequence
 
 sys.path.append(os.path.abspath(os.path.join(
     os.path.dirname(__file__), '..', '..')))
@@ -21,10 +22,12 @@ __tokenizers = {
 }
 
 
-def create_padded_batch(max_length=100, batch_first=False):
+def create_padded_batch(max_length=100, batch_first=False, sort=False, pack=False):
     def collate(seqs):
         if not torch.is_tensor(seqs[0]):
             return tuple([collate(s) for s in zip(*seqs)])
+        if sort or pack:  # packing requires a sorted batch by length
+            seqs.sort(key=lambda p: len(p), reverse=True)
         lengths = [min(len(s), max_length) for s in seqs]
         batch_length = max(lengths)
         seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(PAD)
@@ -33,21 +36,10 @@ def create_padded_batch(max_length=100, batch_first=False):
             seq_tensor[:end_seq, i].copy_(s[:end_seq])
         if batch_first:
             seq_tensor = seq_tensor.t()
-        return (seq_tensor, lengths)
-    return collate
-
-
-def create_sorted_batches(max_length=100):
-    def collate(seqs):
-        seqs.sort(key=lambda p: len(p), reverse=True)
-        lengths = [min(len(s), max_length) for s in seqs]
-        batch_length = max(lengths)
-        seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(PAD)
-        for i, s in enumerate(seqs):
-            end_seq = lengths[i]
-            seq_tensor[:end_seq, i].copy_(s[:end_seq])
-
-        return (seq_tensor, lengths)
+        if pack:
+            return pack_padded_sequence(seq_tensor, lengths, batch_first=batch_first)
+        else:
+            return (seq_tensor, lengths)
     return collate
 
 

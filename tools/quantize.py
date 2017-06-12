@@ -32,40 +32,28 @@ def dequantize_tensor(q_x, num_bits=8):
     return q_x.scale * (q_x.tensor.float() - q_x.zero_point)
 
 
-def quantize_state_dict(float_dict, num_bits=8):
-    quant_dict = {}
-    for k, p in float_dict.items():
-        quant_dict[k] = quantize_tensor(p, num_bits)
-    return quant_dict
-
-
-def dequantize_state_dict(quant_dict):
-    float_dict = {}
-    for k, p in quant_dict.items():
-        float_dict[k] = dequantize_tensor(p)
-    return float_dict
-
 def quantize_model(model):
     qparams = {}
 
-    for n,p in model.state_dict():
+    for n, p in model.state_dict().items():
         qp = quantize_tensor(p)
-        qparams[n +'.quantization.scale'] =  torch.FloatTensor([qp.scale])
-        qparams[n +'.quantization.zero_point'] = torch.ByteTensor([qp.zero_point])
+        qparams[n + '.quantization.scale'] = torch.FloatTensor([qp.scale])
+        qparams[
+            n + '.quantization.zero_point'] = torch.ByteTensor([qp.zero_point])
         p.copy_(qp.tensor)
     model.type('torch.ByteTensor')
-    for n,p in qparams.items():
-        model.register_buffer(n,p)
+    for n, p in qparams.items():
+        model.register_buffer(n, p)
+
 
 def dequantize_model(model):
     model.float()
-
-    qparams = {}
-
-    for n,p in model.state_dict():
-        qp = quantize_tensor(p)
-        qparams[n +'.quantization.scale'] =  torch.FloatTensor([qp.scale])
-        qparams[n +'.quantization.zero_point'] = torch.ByteTensor([qp.zero_point])
-        p.copy_(qp.tensor)
-    for n,p in qparams.items():
-        model.register_buffer(n,p)
+    params = model.state_dict()
+    for n, p in params.items():
+        if 'quantization' not in n:
+            qp = QTensor(tensor=p,
+                         scale=params[n + '.quantization.scale'][0],
+                         zero_point=params[n + '.quantization.zero_point'][0])
+            p.copy_(dequantize_tensor(qp))
+            model.register_buffer(n + '.quantization.scale', None)
+            model.register_buffer(n + '.quantization.zero_point', None)

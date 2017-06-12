@@ -156,3 +156,19 @@ class Seq2SeqTrainer(object):
         if save_all:
             shutil.copyfile(filename, os.path.join(
                 path, 'checkpoint_epoch_%s.pth.tar' % state['epoch']))
+
+
+class MultiSeq2SeqTrainer(Seq2SeqTrainer):
+    """class for Trainer."""
+
+    def iterate(self, src, target, training=True):
+        src, src_length = src
+        target, target_length = target
+        src_full = torch.cat([src, target], 1)
+        src_length_full = src_length + target_length
+
+        target = torch.cat([target, src], 1)
+        target_length_full = target_length + src_length
+        src = (src_full, src_length_full)
+        target = (target, target_length)
+        return super(MultiSeq2SeqTrainer, self).iterate(src, target, training)
