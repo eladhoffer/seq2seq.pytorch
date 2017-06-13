@@ -4,19 +4,17 @@ Adapted from https://github.com/tensorflow/models/blob/master/im2txt/im2txt/infe
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
+import heapq
 import torch
 from torch.autograd import Variable
 from torch.nn.functional import log_softmax
-import heapq
-import math
 from .config import EOS
 
 
 class Sequence(object):
     """Represents a complete or partial sequence."""
 
-    def __init__(self, sentence, state, logprob, score, metadata=None):
+    def __init__(self, sentence, state, logprob, score):
         """Initializes the Sequence.
 
         Args:
@@ -24,14 +22,11 @@ class Sequence(object):
           state: Model state after generating the previous word.
           logprob: Log-probability of the sequence.
           score: Score of the sequence.
-          metadata: Optional metadata associated with the partial sentence. If not
-            None, a list of strings with the same length as 'sentence'.
         """
         self.sentence = sentence
         self.state = state
         self.logprob = logprob
         self.score = score
-        self.metadata = metadata
 
     def __cmp__(self, other):
         """Compares Sequences by score."""
@@ -134,8 +129,7 @@ class SequenceGenerator(object):
 
         def get_topk(inputs, states):
             logits, new_states = self.model(inputs, states)
-
-            logprobs = log_softmax(logits.view(-1, logits.size(-1)))
+            logprobs = log_softmax(logits[-1].view(-1, logits.size(-1)))
             logprobs, words = logprobs.topk(self.beam_size, 1)
             return words.data, logprobs.data, new_states
 

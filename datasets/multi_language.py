@@ -46,14 +46,15 @@ def create_padded_batch(max_length=100, batch_first=False, sort=False, pack=Fals
 class MultiLanguageDataset(object):
     """docstring for Dataset."""
 
-    def __init__(self, prefix="./data/OpenSubtitles2016.en-he",
-                 languages=['en', 'he'],
+    def __init__(self, prefix,
+                 languages,
                  tokenization='bpe',
                  num_symbols=32000,
                  shared_vocab=True,
                  code_files=None,
                  vocab_files=None,
                  insert_start=[BOS], insert_end=[EOS],
+                 mark_language=False,
                  tokenizers=None,
                  load_data=True):
         super(MultiLanguageDataset, self).__init__()
@@ -64,6 +65,7 @@ class MultiLanguageDataset(object):
         self.tokenization = tokenization
         self.insert_start = insert_start
         self.insert_end = insert_end
+        self.mark_language = mark_language
         self.input_files = {l: '{prefix}.{lang}'.format(
             prefix=prefix, lang=l) for l in languages}
 
@@ -95,6 +97,9 @@ class MultiLanguageDataset(object):
 
     def generate_tokenizers(self):
         self.tokenizers = OrderedDict()
+        additional_tokens = None
+        if self.mark_language:
+            additional_tokens = [LANGUAGE_TOKENS[l] for l in self.languages]
         for l in self.languages:
             if self.shared_vocab:
                 files = [self.input_files[t] for t in self.languages]
@@ -104,12 +109,14 @@ class MultiLanguageDataset(object):
             if self.tokenization == 'bpe':
                 tokz = BPETokenizer(self.code_files[l],
                                     vocab_file=self.vocab_files[l],
-                                    num_symbols=self.num_symbols)
+                                    num_symbols=self.num_symbols,
+                                    additional_tokens=additional_tokens)
                 if not hasattr(tokz, 'bpe'):
                     tokz.learn_bpe(files)
             else:
                 tokz = __tokenizers[self.tokenization](
-                    vocab_file=self.vocab_files[l])
+                    vocab_file=self.vocab_files[l],
+                    additional_tokens=additional_tokens)
 
             if not hasattr(tokz, 'vocab'):
                 logging.info('generating vocabulary. saving to %s' %
@@ -121,8 +128,17 @@ class MultiLanguageDataset(object):
     def load_data(self):
         self.datasets = OrderedDict()
         for l in self.languages:
-            transform = lambda t: self.tokenizers[l].tokenize(
-                t, insert_start=self.insert_start, insert_end=self.insert_end)
+            insert_start = deepcopy(self.insert_start)
+            if self.mark_language:
+                lang_idx = self.tokenizers[l]\
+                    .special_tokens.index(LANGUAGE_TOKENS[l])
+                insert_start.append(lang_idx)
+            insert_end = self.insert_end
+
+            def transform(t, insert_start=insert_start, insert_end=insert_end):
+                return self.tokenizers[l].tokenize(t,
+                                                   insert_start=insert_start,
+                                                   insert_end=insert_end)
             self.datasets[l] = LinedTextDataset(
                 self.input_files[l], transform=transform)
 

@@ -1,3 +1,5 @@
+# adapted from https://github.com/OpenNMT/OpenNMT-py
+
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -8,7 +10,6 @@ import math
 import pdb
 from .seq2seq import Seq2Seq
 from .attention import GlobalAttention
-
 
 class Encoder(nn.Module):
 
@@ -125,7 +126,7 @@ class Decoder(nn.Module):
         return x, (context, hidden)
 
 
-class ONMTSeq2Seq(Seq2Seq):
+class AttentionSeq2Seq(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=256,
                  num_layers=2, bias=True, dropout=0, tie_enc_dec_embedding=False):
@@ -133,7 +134,7 @@ class ONMTSeq2Seq(Seq2Seq):
                           num_layers=num_layers, bias=bias, dropout=dropout)
         decoder = Decoder(vocab_size, hidden_size=hidden_size, tie_embedding=tie_enc_dec_embedding,
                           num_layers=num_layers, bias=bias, dropout=dropout)
-        super(ONMTSeq2Seq, self).__init__(encoder, decoder)
+        super(AttentionSeq2Seq, self).__init__(encoder, decoder)
 
         if tie_enc_dec_embedding:
             self.encoder.embedder.weight = self.decoder.embedder.weight

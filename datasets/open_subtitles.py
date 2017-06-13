@@ -22,6 +22,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
                  vocab_files=None,
                  insert_start=[BOS],
                  insert_end=[EOS],
+                 mark_language=False,
                  tokenizers=None,
                  load_data=True):
 
@@ -35,6 +36,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
             vocab_files=vocab_files,
             insert_start=insert_start,
             insert_end=insert_end,
+            mark_language=mark_language,
             tokenizers=tokenizers,
             load_data=load_data
         )

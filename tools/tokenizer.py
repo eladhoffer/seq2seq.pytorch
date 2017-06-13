@@ -96,9 +96,10 @@ class Tokenizer(object):
 
 class BPETokenizer(Tokenizer):
 
-    def __init__(self, codes_file, vocab_file,
+    def __init__(self, codes_file, vocab_file, additional_tokens=None,
                  num_symbols=10000, min_frequency=2, seperator='@@'):
-        super(BPETokenizer, self).__init__(vocab_file=vocab_file)
+        super(BPETokenizer, self).__init__(vocab_file=vocab_file,
+                                           additional_tokens=additional_tokens)
         self.num_symbols = num_symbols
         self.min_frequency = min_frequency
         self.seperator = seperator
@@ -143,9 +144,6 @@ class BPETokenizer(Tokenizer):
 
 
 class CharTokenizer(Tokenizer):
-
-    def __init__(self, vocab_file):
-        super(CharTokenizer, self).__init__(vocab_file=vocab_file)
 
     def segment(self, line):
         return list(line.strip())

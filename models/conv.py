@@ -4,46 +4,6 @@ import torch.nn.functional as F
 from .modules import LayerNorm1d, MaskedConv1d, GatedConv1d
 
 
-class RecurentEncoder(nn.Module):
-
-    def __init__(self, vocab_size, hidden_size=128,
-                 num_layers=1, bias=True, batch_first=False,
-                 mode='LSTM', dropout=0, bidirectional=False):
-        super(RecurentEncoder, self).__init__()
-        if mode not in ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']:
-            raise ValueError( """An invalid option for `mode` was supplied,
-                             options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
-        self.rnn = nn.RNNBase(mode, hidden_size, hidden_size,
-                              num_layers, bias, batch_first,
-                              dropout, bidirectional)
-        self.embedder = nn.Embedding(vocab_size, hidden_size)
-        self.vocab_size = vocab_size
-
-    def forward(self, inputs, hidden=None):
-        x = self.embedder(inputs)
-        x, hidden = self.rnn(x, hidden)
-        return x, hidden
-
-
-class RecurentDecoder(nn.Module):
-
-    def __init__(self, vocab_size, hidden_size=128,
-                 num_layers=1, bias=True, batch_first=False,
-                 mode='LSTM', dropout=0, bidirectional=False, tie_embedding=False):
-        super(RecurentDecoder, self).__init__()
-        if mode not in ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']:
-            raise ValueError( """An invalid option for `mode` was supplied,
-                             options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
-        self.rnn = nn.RNNBase(mode, hidden_size, hidden_size,
-                              num_layers, bias, batch_first,
-                              dropout, bidirectional)
-        self.embedder = nn.Embedding(vocab_size, hidden_size)
-        self.classifier = nn.Linear(hidden_size, vocab_size)
-        if tie_embedding:
-            self.embedder.weight = self.classifier.weight
-        self.batch_first = batch_first
-        self.vocab_size = vocab_size
-
 
 class StackedConv(nn.Module):
 

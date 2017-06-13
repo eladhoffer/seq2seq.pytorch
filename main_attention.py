@@ -12,6 +12,7 @@ from models.recurrent import RecurentEncoder, RecurentDecoder
 from models.gnmt import GNMT
 from models.onmt import AttentionSeq2Seq
 from models.conv import ConvSeq2Seq
+from models.transformer import Transformer
 from models.seq2seq import Seq2Seq
 from tools.utils import *
 from tools.trainer import Seq2SeqTrainer, MultiSeq2SeqTrainer
@@ -103,9 +104,9 @@ def main():
     # decoder = RecurentDecoder(target_tok.vocab_size(),
     #                           hidden_size=128, num_layers=2)
 
-    train_loader = train_data.get_loader(batch_size=args.batch_size,
+    train_loader = train_data.get_loader(batch_size=args.batch_size,batch_first=True,
                                          shuffle=True, num_workers=args.workers)
-    val_loader = val_data.get_loader(batch_size=args.batch_size,
+    val_loader = val_data.get_loader(batch_size=args.batch_size,batch_first=True,
                                      shuffle=False, num_workers=args.workers)
     regime = {e: {'optimizer': args.optimizer,
                   'lr': args.lr * (0.5 ** e),
@@ -119,8 +120,8 @@ def main():
     criterion.type(args.type)
 
     # model = Seq2Seq(encoder=encoder, decoder=decoder)
-    model = AttentionSeq2Seq(target_tok.vocab_size(), tie_enc_dec_embedding=True)
-    # model = GNMT(target_tok.vocab_size())
+    # model = AttentionSeq2Seq(target_tok.vocab_size(), tie_enc_dec_embedding=True)
+    model = Transformer(target_tok.vocab_size())
     print(model)
     torch.save({'src': src_tok, 'target': target_tok},
                os.path.join(save_path, 'tokenizers'))
@@ -129,6 +130,7 @@ def main():
                              optimizer=torch.optim.SGD,
                              grad_clip=args.grad_clip,
                              save_path=save_path,
+                             batch_first=True,
                              save_info={'tokenizers': train_data.tokenizers,
                                         'config': args},
                              regime=regime,

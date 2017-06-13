@@ -161,13 +161,25 @@ class MultiSeq2SeqTrainer(Seq2SeqTrainer):
     """class for Trainer."""
 
     def iterate(self, src, target, training=True):
+        def pad_copy(x, length):
+            if x.size(0) == length:
+                return x
+            else:
+                padded = x.new().resize_(length, x.size(1)).fill_(0)
+                padded[:x.size(0)].copy_(x)
+                return padded
+
         src, src_length = src
         target, target_length = target
+        max_length = max(src.size(0), target.size(0))
+        src = pad_copy(src, max_length)
+        target = pad_copy(target, max_length)
+
         src_full = torch.cat([src, target], 1)
         src_length_full = src_length + target_length
 
-        target = torch.cat([target, src], 1)
+        target_full = torch.cat([target, src], 1)
         target_length_full = target_length + src_length
         src = (src_full, src_length_full)
-        target = (target, target_length)
+        target = (target_full, target_length_full)
         return super(MultiSeq2SeqTrainer, self).iterate(src, target, training)
