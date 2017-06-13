@@ -69,10 +69,6 @@ class SDPAttention(nn.Module):
         super(SDPAttention, self).__init__()
         self.causal = causal
         self.softmax = nn.Softmax()
-        self.mask = None
-
-    def applyMask(self, mask):
-        self.mask = mask
 
     def forward(self, q, k, v):
         b_q, t_q, dim_q = list(q.size())
@@ -85,10 +81,9 @@ class SDPAttention(nn.Module):
         qk = torch.bmm(q, k.transpose(1, 2))  # b x t_q x t_k
         qk = qk / (dim_k ** 0.5)
         if self.causal:
-            for t2 in range(t_k):
-                for t1 in range(t_q):
-                    if t2 > t1:
-                        qk[:, t1, t2].data.fill_(-float('inf'))
+            mask = torch.ByteTensor(t_q, t_k).fill_(1).triu_()
+            mask = mask.unsqueeze(0).expand(b, t_q, t_k)
+            qk.data.masked_fill_(mask, -float('inf'))
         sm_qk = self.softmax(qk.view(-1, t_k)).view(b, t_q, t_k)
         return torch.bmm(sm_qk, v)  # b x t_q x dim_v
 
@@ -109,11 +104,6 @@ class MultiHeadAttention(nn.Module):
         self.linear_v = nn.Linear(input_size, input_size)
         self.linear_out = nn.Linear(input_size, output_size)
         self.sdp_attention = SDPAttention(causal=causal)
-        self.softmax = nn.Softmax()
-        self.mask = None
-
-    def applyMask(self, mask):
-        self.mask = mask
 
     def forward(self, q, k, v):
 

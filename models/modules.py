@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class MaskedConv1d(nn.Conv1d):
 
     def __init__(self, in_channels, out_channels, kernel_size, dilation=1,
@@ -57,13 +58,14 @@ class LayerNorm1d(nn.Module):
             self.bias.data.fill_(self.bias_init)
 
     def forward(self, inputs):
-        mean = inputs.mean(1).expand_as(inputs)
+        b, t, n = list(inputs.size())
+        mean = inputs.mean(2).view(b, t, 1).expand_as(inputs)
         input_centered = inputs - mean
-        std = (input_centered ** 2).mean(1).sqrt().expand_as(inputs)
+        std = (input_centered ** 2).mean(2).sqrt().view(b, t, 1).expand_as(inputs)
         output = input_centered / (std + self.eps)
 
         if self.affine:
-            w = self.weight.view(1, -1, 1).expand_as(output)
-            b = self.bias.view(1, -1, 1).expand_as(output)
+            w = self.weight.view(1, 1, -1).expand_as(output)
+            b = self.bias.view(1, 1, -1).expand_as(output)
             output = output * w + b
         return output

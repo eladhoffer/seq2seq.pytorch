@@ -23,7 +23,7 @@ from tools.translator import Translator
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
 
-parser.add_argument('--results_dir', metavar='RESULTS_DIR', default='./results',
+parser.add_argument('--results_dir', metavar='RESULTS_DIR', default='/scratch/ehoffer/results',
                     help='results dir')
 parser.add_argument('--save', metavar='SAVE', default='',
                     help='saved folder')
@@ -88,14 +88,14 @@ def main():
     # train_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='train')
     # val_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='dev')
     # Data loading code
-    # train_data = WMT16_de_en(
-    #     root='/media/drive/Datasets/wmt16_de_en', split='train')
-    # val_data = WMT16_de_en(
-    #     root='/media/drive/Datasets/wmt16_de_en', split='dev')
-    train_data = OpenSubtitles2016(
-        root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'], mark_language=True)
-    val_data = train_data.select_range(len(train_data)-30000, len(train_data)-1)
-    train_data = train_data.select_range(0, len(train_data)-30001)
+    train_data = WMT16_de_en(
+        root='/scratch/ehoffer/Datasets/wmt16_de_en', split='train')
+    val_data = WMT16_de_en(
+        root='/scratch/ehoffer/Datasets/wmt16_de_en', split='dev')
+    # train_data = OpenSubtitles2016(
+    #     root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'], mark_language=True)
+    # val_data = train_data.select_range(len(train_data)-30000, len(train_data)-1)
+    # train_data = train_data.select_range(0, len(train_data)-30001)
 
     src_tok, target_tok = train_data.tokenizers.values()
 
@@ -121,11 +121,11 @@ def main():
 
     # model = Seq2Seq(encoder=encoder, decoder=decoder)
     # model = AttentionSeq2Seq(target_tok.vocab_size(), tie_enc_dec_embedding=True)
-    model = Transformer(target_tok.vocab_size())
+    model = Transformer(target_tok.vocab_size(), 256, 4)
     print(model)
     torch.save({'src': src_tok, 'target': target_tok},
                os.path.join(save_path, 'tokenizers'))
-    trainer = MultiSeq2SeqTrainer(model,
+    trainer = Seq2SeqTrainer(model,
                              criterion=criterion,
                              optimizer=torch.optim.SGD,
                              grad_clip=args.grad_clip,
