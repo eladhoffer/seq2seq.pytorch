@@ -57,7 +57,7 @@ class DecoderBlock(nn.Module):
         self.attention = MultiHeadAttention(
             hidden_size, hidden_size, num_heads, causal=False)
         self.masked_attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, causal=False)
+            hidden_size, hidden_size, num_heads, causal=True)
         self.fc = nn.Sequential(nn.Linear(hidden_size, inner_linear),
                                 nn.ReLU(inplace=True),
                                 nn.Linear(inner_linear, hidden_size))
