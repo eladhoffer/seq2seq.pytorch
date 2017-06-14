@@ -58,7 +58,7 @@ class LayerNorm1d(nn.Module):
             self.bias.data.fill_(self.bias_init)
 
     def forward(self, inputs):
-        b, t, n = list(inputs.size())
+        b, t, _ = list(inputs.size())
         mean = inputs.mean(2).view(b, t, 1).expand_as(inputs)
         input_centered = inputs - mean
         std = (input_centered ** 2).mean(2).sqrt().view(b, t, 1).expand_as(inputs)
@@ -69,3 +69,38 @@ class LayerNorm1d(nn.Module):
             b = self.bias.view(1, 1, -1).expand_as(output)
             output = output * w + b
         return output
+
+# class SimpleLSTMCell(nn.Module):
+#
+#     def __init__(self, input_size, hidden_size, bias=True):
+#         super(SimpleLSTMCell, self).__init__()
+#         self.input_size = input_size
+#         self.hidden_size = hidden_size
+#         self.ih = nn.Linear(input_size, 4 * hidden_size, bias=bias)
+#         self.hh = nn.Linear(hidden_size, 4 * hidden_size, bias=bias)
+#         self.sigmoid = nn.Sigmoid()
+#         self.tanh = nn.Tanh()
+#         self.reset_parameters()
+#
+#     def reset_parameters(self):
+#         stdv = 1.0 / math.sqrt(self.hidden_size)
+#         for weight in self.parameters():
+#             weight.data.uniform_(-stdv, stdv)
+#
+#     def forward(self, input, hidden):
+#         hx, cx = hidden
+#         gates = self.ih(input)
+#         gates += self.hh(hx)
+#
+#         ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+#
+#         ingate = self.sigmoid(ingate)
+#         forgetgate = self.sigmoid(forgetgate)
+#         cellgate = self.tanh(cellgate)
+#         outgate = self.sigmoid(outgate)
+#
+#         cy = (forgetgate * cx) + (ingate * cellgate)
+#         hy = outgate * self.tanh(cy)
+#
+#         return hy, cy
+#

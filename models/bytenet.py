@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from modules import LayerNorm1d, MaskedConv1d
+from .modules import LayerNorm1d, MaskedConv1d
 
 class ResidualBlock(nn.Module):
 
@@ -37,23 +37,3 @@ class ByteNet(nn.Sequential):
             for r in dilation_rates:
                 self.add_module('block%s_%s' % (s, r),
                                 block(num_channels, kernel_size=kernel_size, dilation=r, causal=causal))
-
-
-#
-# class MU(nn.Module):
-#
-#     def __init__():
-#         super(MU, self).__init__()
-#
-#     def forward(inputs):
-#         hx, cx = hidden
-#         gates = F.linear(inputs, w_ih, b_ih) + F.linear(hx, w_hh, b_hh)
-#         ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
-#
-#         ingate = F.sigmoid(ingate)
-#         forgetgate = F.sigmoid(forgetgate)
-#         cellgate = F.tanh(cellgate)
-#         outgate = F.sigmoid(outgate)
-#
-#         cy = (forgetgate * cx) + (ingate * cellgate)
-#         hy = outgate * F.tanh(cy)

@@ -3,8 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .modules import LayerNorm1d, MaskedConv1d, GatedConv1d
 
-
-
 class StackedConv(nn.Module):
 
     def __init__(self, input_size, hidden_size, kernel_size=3,

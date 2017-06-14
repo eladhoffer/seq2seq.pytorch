@@ -8,10 +8,7 @@ import torch.backends.cudnn as cudnn
 import torch.optim
 from torch.autograd import Variable
 from datetime import datetime
-from models.recurrent import RecurentEncoder, RecurentDecoder
-from models.gnmt import GNMT
-from models.onmt import AttentionSeq2Seq
-from models.conv import ConvSeq2Seq
+from models import GNMT, RecurrentAttentionSeq2Seq
 from models.seq2seq import Seq2Seq
 from tools.utils import *
 from tools.trainer import Seq2SeqTrainer, MultiSeq2SeqTrainer
@@ -92,9 +89,15 @@ def main():
     # val_data = WMT16_de_en(
     #     root='/media/drive/Datasets/wmt16_de_en', split='dev')
     train_data = OpenSubtitles2016(
-        root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'], mark_language=True)
-    val_data = train_data.select_range(len(train_data)-30000, len(train_data)-1)
-    train_data = train_data.select_range(0, len(train_data)-30001)
+        root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'], split='test',
+        mark_language=True)
+    val_data = OpenSubtitles2016(
+        root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'], split='dev',
+        mark_language=True)
+    if val_data is None:  # if there is no validation data, split the training data
+        val_data = train_data.select_range(
+            len(train_data) - 30000, len(train_data) - 1)
+        train_data = train_data.select_range(0, len(train_data) - 30001)
 
     src_tok, target_tok = train_data.tokenizers.values()
 
@@ -119,20 +122,21 @@ def main():
     criterion.type(args.type)
 
     # model = Seq2Seq(encoder=encoder, decoder=decoder)
-    model = AttentionSeq2Seq(target_tok.vocab_size(), tie_enc_dec_embedding=True)
+    model = RecurrentAttentionSeq2Seq(target_tok.vocab_size(),
+                             tie_enc_dec_embedding=True)
     # model = GNMT(target_tok.vocab_size())
     print(model)
     torch.save({'src': src_tok, 'target': target_tok},
                os.path.join(save_path, 'tokenizers'))
     trainer = MultiSeq2SeqTrainer(model,
-                             criterion=criterion,
-                             optimizer=torch.optim.SGD,
-                             grad_clip=args.grad_clip,
-                             save_path=save_path,
-                             save_info={'tokenizers': train_data.tokenizers,
-                                        'config': args},
-                             regime=regime,
-                             print_freq=args.print_freq)
+                                  criterion=criterion,
+                                  optimizer=torch.optim.SGD,
+                                  grad_clip=args.grad_clip,
+                                  save_path=save_path,
+                                  save_info={'tokenizers': train_data.tokenizers,
+                                             'config': args},
+                                  regime=regime,
+                                  print_freq=args.print_freq)
     num_parameters = sum([l.nelement() for l in model.parameters()])
     logging.info("number of parameters: %d", num_parameters)
 

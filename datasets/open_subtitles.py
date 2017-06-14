@@ -15,6 +15,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
     def __init__(self,
                  root,
                  languages,
+                 split='train',
                  tokenization='bpe',
                  num_symbols=32000,
                  shared_vocab=True,
@@ -24,7 +25,9 @@ class OpenSubtitles2016(MultiLanguageDataset):
                  insert_end=[EOS],
                  mark_language=False,
                  tokenizers=None,
-                 load_data=True):
+                 load_data=True,
+                 dev_size=3000,
+                 test_size=3000):
 
         options = dict(
             prefix=root + '.' + '-'.join(sorted(languages)),
@@ -42,3 +45,10 @@ class OpenSubtitles2016(MultiLanguageDataset):
         )
 
         super(OpenSubtitles2016, self).__init__(**options)
+        if split == 'train':
+            self = self.select_range(0, len(self) - (dev_size + test_size + 1))
+        elif split == 'dev':
+            self = self.select_range(
+                len(self) - (dev_size + test_size), len(self) - (test_size - 1))
+        elif split == 'test':
+            self = self.select_range(len(self) - test_size, len(self))

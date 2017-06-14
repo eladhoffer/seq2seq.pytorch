@@ -92,10 +92,12 @@ def main():
         root='/scratch/ehoffer/Datasets/wmt16_de_en', split='train')
     val_data = WMT16_de_en(
         root='/scratch/ehoffer/Datasets/wmt16_de_en', split='dev')
+
     # train_data = OpenSubtitles2016(
     #     root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'], mark_language=True)
-    # val_data = train_data.select_range(len(train_data)-30000, len(train_data)-1)
-    # train_data = train_data.select_range(0, len(train_data)-30001)
+    if val_data is None: # if there is no validation data, split the training data
+        val_data = train_data.select_range(len(train_data)-30000, len(train_data)-1)
+        train_data = train_data.select_range(0, len(train_data)-30001)
 
     src_tok, target_tok = train_data.tokenizers.values()
 

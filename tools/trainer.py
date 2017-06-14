@@ -1,6 +1,6 @@
 import time
 import logging
-from itertools import chain
+from itertools import chain, cycle
 import torch
 import torch.nn as nn
 import torch.optim
@@ -24,6 +24,8 @@ class Seq2SeqTrainer(object):
                  batch_first=False,
                  save_info={},
                  save_path='.',
+                 checkpoint_filename='checkpoint%s.pth.tar',
+                 keep_checkpoints=5,
                  cuda=True):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
@@ -34,6 +36,8 @@ class Seq2SeqTrainer(object):
         self.save_info = save_info
         self.save_path = save_path
         self.save_freq = save_freq
+        self.checkpoint_filename = checkpoint_filename
+        self.keep_checkpoints = keep_checkpoints
         self.regime = regime
         self.cuda = cuda
         self.print_freq = print_freq
@@ -76,6 +80,7 @@ class Seq2SeqTrainer(object):
 
     def feed_data(self, data_loader, training=True):
         if training:
+            counter = cycle(range(self.keep_checkpoints))
             assert self.optimizer is not None
         batch_time = AverageMeter()
         data_time = AverageMeter()
@@ -108,8 +113,9 @@ class Seq2SeqTrainer(object):
                                  phase='TRAINING' if training else 'EVALUATING',
                                  batch_time=batch_time,
                                  data_time=data_time, loss=losses, perplexity=perplexity))
-            if i % self.save_freq == 0:
-                self.save()
+            if training and i % self.save_freq == 0:
+                self.save_info['iteration'] = i
+                self.save(identifier=next(counter))
 
         return losses.avg, perplexity.avg
 
@@ -138,7 +144,7 @@ class Seq2SeqTrainer(object):
         else:
             logging.error('invalid checkpoint: {}'.format(filename))
 
-    def save(self, filename='checkpoint.pth.tar', is_best=False, save_all=False):
+    def save(self, filename=None, identifier=None, is_best=False, save_all=False):
         state = {
             'epoch': self.epoch,
             'model': self.model,
@@ -147,38 +153,46 @@ class Seq2SeqTrainer(object):
             'regime': self.regime
         }
         state = dict(list(state.items()) + list(self.save_info.items()))
+        identifier = identifier or ''
+        filename = filename or self.checkpoint_filename % identifier
         filename = os.path.join(self.save_path, filename)
         logging.info('saving model to %s' % filename)
         torch.save(state, filename)
         if is_best:
-            shutil.copyfile(filename, os.path.join(path, 'model_best.pth.tar'))
+            shutil.copyfile(filename, os.path.join(
+                self.save_path, 'model_best.pth.tar'))
         if save_all:
             shutil.copyfile(filename, os.path.join(
-                path, 'checkpoint_epoch_%s.pth.tar' % state['epoch']))
+                self.save_path, 'checkpoint_epoch_%s.pth.tar' % self.epoch))
 
 
 class MultiSeq2SeqTrainer(Seq2SeqTrainer):
     """class for Trainer."""
 
     def iterate(self, src, target, training=True):
+        batch_dim = 0 if self.batch_first else 1
+        time_dim = 1 if self.batch_first else 0
+
         def pad_copy(x, length):
-            if x.size(0) == length:
+            if x.size(time_dim) == length:
                 return x
             else:
-                padded = x.new().resize_(length, x.size(1)).fill_(0)
-                padded[:x.size(0)].copy_(x)
+                sz = (x.size(0), length) if self.batch_first \
+                    else (length, x.size(1))
+                padded = x.new().resize_(*sz).fill_(0)
+                padded.narrow(time_dim, 0, x.size(time_dim)).copy_(x)
                 return padded
 
         src, src_length = src
         target, target_length = target
-        max_length = max(src.size(0), target.size(0))
+        max_length = max(src.size(time_dim), target.size(time_dim))
         src = pad_copy(src, max_length)
         target = pad_copy(target, max_length)
 
-        src_full = torch.cat([src, target], 1)
+        src_full = torch.cat([src, target], batch_dim)
         src_length_full = src_length + target_length
 
-        target_full = torch.cat([target, src], 1)
+        target_full = torch.cat([target, src], batch_dim)
         target_length_full = target_length + src_length
         src = (src_full, src_length_full)
         target = (target_full, target_length_full)

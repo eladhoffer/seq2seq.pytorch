@@ -32,9 +32,7 @@ if __name__ == '__main__':
     output_file = codecs.open(args.output, 'w', encoding='UTF-8')
     with codecs.open(args.input, encoding='UTF-8') as input_file:
         for line in input_file:
-            # print(line)
             translated = translation_model.translate(line)
-            # print(translated)
             output_file.write(translated)
             output_file.write('\n')
     output_file.close()

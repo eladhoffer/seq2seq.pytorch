@@ -20,11 +20,11 @@ def pos_embedding(x, scale=1000):
     return torch.cat([mat.sin(), mat.cos()], 1).unsqueeze(0).expand(b, t, dim)
 
 
-class AttentionEncoder(nn.Module):
+class TransformerAttentionEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0):
 
-        super(AttentionEncoder, self).__init__()
+        super(TransformerAttentionEncoder, self).__init__()
         self.embedder = nn.Embedding(vocab_size, hidden_size)
         self.lnorm = LayerNorm1d(hidden_size)
         self.attention_layers = nn.ModuleList(([MultiHeadAttention(hidden_size, hidden_size, num_heads, causal=False)
@@ -53,7 +53,7 @@ class AttentionEncoder(nn.Module):
         return x
 
 
-class AttentionDecoder(nn.Module):
+class TransformerAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, tie_embedding=True):
 
@@ -99,17 +99,17 @@ class Transformer(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, tie_enc_dec_embedding=True):
         super(Transformer, self).__init__()
-        self.encoder = AttentionEncoder(vocab_size, hidden_size=hidden_size,
-                                        num_layers=num_layers, num_heads=num_heads, dropout=dropout)
-        self.decoder = AttentionDecoder(vocab_size, hidden_size=hidden_size,
-                                        num_layers=num_layers, num_heads=num_heads, dropout=dropout,
-                                        tie_embedding=tie_enc_dec_embedding)
+        self.encoder = TransformerAttentionEncoder(vocab_size, hidden_size=hidden_size,
+                                                   num_layers=num_layers, num_heads=num_heads, dropout=dropout)
+        self.decoder = TransformerAttentionDecoder(vocab_size, hidden_size=hidden_size,
+                                                   num_layers=num_layers, num_heads=num_heads, dropout=dropout,
+                                                   tie_embedding=tie_enc_dec_embedding)
 
         if tie_enc_dec_embedding:
             self.encoder.embedder.weight = self.decoder.embedder.weight
 
-# test:
-model = Transformer(1000, 128, 3)
-x1 = torch.autograd.Variable(torch.rand(32, 16).long().fill_(2))
-x2 = torch.autograd.Variable(torch.rand(32, 16).long().fill_(2))
-y = model(x1, x2)
+# # test:
+# model = Transformer(1000, 128, 3)
+# x1 = torch.autograd.Variable(torch.rand(32, 16).long().fill_(2))
+# x2 = torch.autograd.Variable(torch.rand(32, 16).long().fill_(2))
+# y = model(x1, x2)

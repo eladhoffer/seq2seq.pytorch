@@ -5,6 +5,7 @@ import torch.nn as nn
 
 
 class GlobalAttention(nn.Module):
+    # Borrowed from https://github.com/OpenNMT/OpenNMT-py
     """
     Global attention takes a matrix and a query vector. It
     then computes a parameterized convex combination of the matrix
@@ -38,12 +39,12 @@ class GlobalAttention(nn.Module):
     def applyMask(self, mask):
         self.mask = mask
 
-    def forward(self, input, context):
+    def forward(self, inputs, context):
         """
-        input: batch x dim
+        inputs: batch x dim
         context: batch x sourceL x dim
         """
-        targetT = self.linear_in(input).unsqueeze(2)  # batch x dim x 1
+        targetT = self.linear_in(inputs).unsqueeze(2)  # batch x dim x 1
 
         # Get attention
         attn = torch.bmm(context, targetT).squeeze(2)  # batch x sourceL
@@ -53,7 +54,7 @@ class GlobalAttention(nn.Module):
         attn3 = attn.view(attn.size(0), 1, attn.size(1))  # batch x 1 x sourceL
 
         weightedContext = torch.bmm(attn3, context).squeeze(1)  # batch x dim
-        contextCombined = torch.cat((weightedContext, input), 1)
+        contextCombined = torch.cat((weightedContext, inputs), 1)
 
         contextOutput = self.tanh(self.linear_out(contextCombined))
 
@@ -81,7 +82,7 @@ class SDPAttention(nn.Module):
         qk = torch.bmm(q, k.transpose(1, 2))  # b x t_q x t_k
         qk = qk / (dim_k ** 0.5)
         if self.causal:
-            mask = torch.ByteTensor(t_q, t_k).fill_(1).triu_()
+            mask = q.data.new(t_q, t_k).byte().fill_(1).triu_(1)
             mask = mask.unsqueeze(0).expand(b, t_q, t_k)
             qk.data.masked_fill_(mask, -float('inf'))
         sm_qk = self.softmax(qk.view(-1, t_k)).view(b, t_q, t_k)
