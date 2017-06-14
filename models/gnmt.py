@@ -8,7 +8,7 @@ class GNMT(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=512,
                  num_layers=8, bias=True, batch_first=False,
-                 dropout=0, gpu_assignment={'encoder': 1, 'decoder': 2}):
+                 dropout=0, gpu_assignment=None):
         super(GNMT, self).__init__()
         self.gpu_assignment = gpu_assignment
         self.encoder = ResidualRecurrentEncoder(vocab_size, hidden_size,

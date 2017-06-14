@@ -57,7 +57,7 @@ class TransformerAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, tie_embedding=True):
 
-        super(AttentionDecoder, self).__init__()
+        super(TransformerAttentionDecoder, self).__init__()
         self.embedder = nn.Embedding(vocab_size, hidden_size)
         self.lnorm = LayerNorm1d(hidden_size)
         self.masked_attention_layers = nn.ModuleList(([MultiHeadAttention(hidden_size, hidden_size, num_heads, causal=True)
@@ -97,15 +97,15 @@ class TransformerAttentionDecoder(nn.Module):
 
 class Transformer(Seq2Seq):
 
-    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, tie_enc_dec_embedding=True):
+    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, tie_embedding=True):
         super(Transformer, self).__init__()
         self.encoder = TransformerAttentionEncoder(vocab_size, hidden_size=hidden_size,
                                                    num_layers=num_layers, num_heads=num_heads, dropout=dropout)
         self.decoder = TransformerAttentionDecoder(vocab_size, hidden_size=hidden_size,
                                                    num_layers=num_layers, num_heads=num_heads, dropout=dropout,
-                                                   tie_embedding=tie_enc_dec_embedding)
+                                                   tie_embedding=tie_embedding)
 
-        if tie_enc_dec_embedding:
+        if tie_embedding:
             self.encoder.embedder.weight = self.decoder.embedder.weight
 
 # # test:

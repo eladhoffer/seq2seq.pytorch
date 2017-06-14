@@ -15,11 +15,9 @@ from .utils import *
 class Seq2SeqTrainer(object):
     """class for Trainer."""
 
-    def __init__(self, model, criterion,
-                 optimizer=None,
+    def __init__(self, model, criterion, regime,
                  print_freq=10,
                  save_freq=1000,
-                 regime=None,
                  grad_clip=None,
                  batch_first=False,
                  save_info={},
@@ -30,7 +28,7 @@ class Seq2SeqTrainer(object):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
         self.criterion = criterion
-        self.optimizer = optimizer(self.model.parameters(), lr=0.1)
+        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.1)
         self.grad_clip = grad_clip
         self.epoch = 0
         self.save_info = save_info
@@ -42,7 +40,7 @@ class Seq2SeqTrainer(object):
         self.cuda = cuda
         self.print_freq = print_freq
         self.batch_first = batch_first
-        self.lowet_perplexity = None
+        self.perplexity = None
 
     def iterate(self, src, target, training=True):
         src, src_length = src
@@ -138,7 +136,7 @@ class Seq2SeqTrainer(object):
             checkpoint = torch.load(filename)
             self.model.load_state_dict(checkpoint['state_dict'])
             self.epoch = checkpoint['epoch']
-            self.lowet_perplexity = checkpoint['perplexity']
+            self.perplexity = checkpoint['perplexity']
             logging.info("loaded checkpoint '%s' (epoch %s)",
                          filename, self.epoch)
         else:
@@ -149,7 +147,7 @@ class Seq2SeqTrainer(object):
             'epoch': self.epoch,
             'model': self.model,
             'state_dict': self.model.state_dict(),
-            'perplexity': self.lowet_perplexity,
+            'perplexity': getattr(self, 'perplexity', None),
             'regime': self.regime
         }
         state = dict(list(state.items()) + list(self.save_info.items()))

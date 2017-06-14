@@ -2,49 +2,71 @@
 # -*- coding: utf-8 -*-
 import argparse
 import os
+import logging
+from ast import literal_eval
+from datetime import datetime
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
-from torch.autograd import Variable
-from datetime import datetime
-from models import GNMT, RecurrentAttentionSeq2Seq
-from models.seq2seq import Seq2Seq
-from tools.utils import *
-from tools.trainer import Seq2SeqTrainer, MultiSeq2SeqTrainer
-from datasets import MultiLanguageDataset, WMT16_de_en, OpenSubtitles2016
-from tools.config import *
+import models
+import datasets
+from tools.utils import setup_logging, ResultsLog
+import tools.trainer as trainers
+from tools.config import PAD
 from tools.translator import Translator
 
+Datasets = ['WMT16_de_en', 'OpenSubtitles2016']
+Models = ['Transformer', 'RecurrentAttentionSeq2Seq', 'GNMT']
+Trainers = ['MultiSeq2SeqTrainer', 'Seq2SeqTrainer']
+BatchFirstModels = ['Transformer']
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
-
+parser.add_argument('--dataset', metavar='DATASET', default='WMT16_de_en',
+                    choices=Datasets,
+                    help='dataset used: ' +
+                    ' | '.join(Datasets) +
+                    ' (default: WMT16_de_en)')
+parser.add_argument('--dataset_dir', metavar='DATASET_DIR',
+                    help='dataset dir')
+parser.add_argument('--data_config',
+                    default="{'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}",
+                    help='data configuration')
 parser.add_argument('--results_dir', metavar='RESULTS_DIR', default='./results',
                     help='results dir')
 parser.add_argument('--save', metavar='SAVE', default='',
                     help='saved folder')
+parser.add_argument('--model', metavar='MODEL', default='RecurrentAttentionSeq2Seq',
+                    choices=Models,
+                    help='model architecture: ' +
+                    ' | '.join(Models) +
+                    ' (default: RecurrentAttentionSeq2Seq)')
+parser.add_argument('--model_config', default="{'hidden_size:256','num_layers':2}",
+                    help='architecture configuration')
+
+parser.add_argument('--trainer', metavar='TRAINER', default='Seq2SeqTrainer',
+                    choices=Trainers,
+                    help='trainer used: ' +
+                    ' | '.join(Trainers) +
+                    ' (default: Seq2SeqTrainer)')
 parser.add_argument('--type', default='torch.cuda.FloatTensor',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
 parser.add_argument('--gpus', default='0',
                     help='gpus used for training - e.g 0,1,3')
-parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=8, type=int,
                     help='number of data loading workers (default: 8)')
-parser.add_argument('--epochs', default=90, type=int, metavar='N',
+parser.add_argument('--epochs', default=90, type=int,
                     help='number of total epochs to run')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
-                    metavar='N', help='mini-batch size (default: 32)')
-parser.add_argument('--optimizer', default='SGD', type=str, metavar='OPT',
-                    help='optimizer function used')
-parser.add_argument('--lr', '--learning_rate', default=0.1, type=float,
-                    metavar='LR', help='initial learning rate')
-parser.add_argument('--momentum', default=0, type=float, metavar='M',
-                    help='momentum')
-parser.add_argument('--weight-decay', '--wd', default=0, type=float,
-                    metavar='W', help='weight decay (default: 1e-4)')
+                    help='mini-batch size (default: 32)')
+parser.add_argument('--optimization_config',
+                    default="{0: {'optimizer': SGD, 'lr':0.1, 'momentum':0.9}}",
+                    type=str, metavar='OPT',
+                    help='optimization regime used')
 parser.add_argument('--print-freq', '-p', default=10, type=int,
-                    metavar='N', help='print frequency (default: 10)')
+                    help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
@@ -53,10 +75,7 @@ parser.add_argument('--grad_clip', default=5., type=float,
                     help='maximum grad norm value')
 
 
-def main():
-    global args, best_perplexity
-    best_perplexity = 0
-    args = parser.parse_args()
+def main(args):
 
     if args.evaluate:
         args.results_dir = '/tmp'
@@ -80,63 +99,48 @@ def main():
     else:
         args.gpus = None
 
-    # Data loading code
-    # train_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='train')
-    # val_data = WMT16_de_en(root='./datasets/data/wmt16_de_en', split='dev')
-    # Data loading code
-    # train_data = WMT16_de_en(
-    #     root='/media/drive/Datasets/wmt16_de_en', split='train')
-    # val_data = WMT16_de_en(
-    #     root='/media/drive/Datasets/wmt16_de_en', split='dev')
-    train_data = OpenSubtitles2016(
-        root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'], split='test',
-        mark_language=True)
-    val_data = OpenSubtitles2016(
-        root='./datasets/data/OpenSubtitles2016', languages=['en', 'he'], split='dev',
-        mark_language=True)
-    if val_data is None:  # if there is no validation data, split the training data
-        val_data = train_data.select_range(
-            len(train_data) - 30000, len(train_data) - 1)
-        train_data = train_data.select_range(0, len(train_data) - 30001)
-
-    src_tok, target_tok = train_data.tokenizers.values()
-
-    # encoder = RecurentEncoder(src_tok.vocab_size(),
-    #                           hidden_size=128, num_layers=1, bidirectional=True)
-    # decoder = RecurentDecoder(target_tok.vocab_size(),
-    #                           hidden_size=128, num_layers=2)
+    batch_first = args.model in BatchFirstModels
+    data_config = dict(root=args.dataset_dir)
+    if data_config is not '':
+        data_config = dict(data_config, **literal_eval(args.data_config))
+    dataset = getattr(datasets, args.dataset)
+    train_data = dataset(**data_config, split='train')
+    val_data = dataset(**data_config, split='dev')
+    _, target_tok = train_data.tokenizers.values()
 
     train_loader = train_data.get_loader(batch_size=args.batch_size,
-                                         shuffle=True, num_workers=args.workers)
+                                         batch_first=batch_first,
+                                         shuffle=True,
+                                         num_workers=args.workers)
     val_loader = val_data.get_loader(batch_size=args.batch_size,
-                                     shuffle=False, num_workers=args.workers)
-    regime = {e: {'optimizer': args.optimizer,
-                  'lr': args.lr * (0.5 ** e),
-                  'momentum': args.momentum,
-                  'weight_decay': args.weight_decay} for e in range(10)}
+                                     batch_first=batch_first,
+                                     shuffle=False,
+                                     num_workers=args.workers)
+    regime = literal_eval(args.optimization_config)
 
+    regime = literal_eval(args.optimization_config)
+    model_config = dict(vocab_size=target_tok.vocab_size(),
+                        **literal_eval(args.model_config))
+    model = getattr(models, args.model)(**model_config)
+    print(model)
     # define loss function (criterion) and optimizer
     loss_weight = torch.ones(target_tok.vocab_size())
     loss_weight[PAD] = 0
     criterion = nn.CrossEntropyLoss(weight=loss_weight, size_average=False)
     criterion.type(args.type)
 
-    # model = Seq2Seq(encoder=encoder, decoder=decoder)
-    model = RecurrentAttentionSeq2Seq(target_tok.vocab_size(),
-                             tie_enc_dec_embedding=True)
-    # model = GNMT(target_tok.vocab_size())
-    print(model)
-    torch.save({'src': src_tok, 'target': target_tok},
-               os.path.join(save_path, 'tokenizers'))
-    trainer = MultiSeq2SeqTrainer(model,
-                                  criterion=criterion,
-                                  optimizer=torch.optim.SGD,
-                                  grad_clip=args.grad_clip,
-                                  save_path=save_path,
-                                  save_info={'tokenizers': train_data.tokenizers,
-                                             'config': args},
-                                  regime=regime,
-                                  print_freq=args.print_freq)
+    trainer_options = dict(
+        criterion=criterion,
+        grad_clip=args.grad_clip,
+        save_path=save_path,
+        save_info={'tokenizers': train_data.tokenizers,
+                   'config': args},
+        regime=regime,
+        batch_first=batch_first,
+        print_freq=args.print_freq)
+
+    trainer_options['model'] = model
+    trainer = getattr(trainers, args.trainer)(**trainer_options)
     num_parameters = sum([l.nelement() for l in model.parameters()])
     logging.info("number of parameters: %d", num_parameters)
 
@@ -158,6 +162,7 @@ def main():
 
     logging.info('training regime: %s', regime)
 
+    best_perplexity = 0
     for epoch in range(args.start_epoch, args.epochs):
         trainer.epoch = epoch
         # train for one epoch
@@ -165,13 +170,13 @@ def main():
 
         # evaluate on validation set
         val_loss, val_perplexity = trainer.evaluate(val_loader)
-
-        translation_model = Translator(model,
-                                       src_tok=src_tok,
-                                       target_tok=target_tok,
-                                       beam_size=5,
-                                       length_normalization_factor=0,
-                                       cuda=True)
+        #
+        # translation_model = Translator(model,
+        #                                src_tok=src_tok,
+        #                                target_tok=target_tok,
+        #                                beam_size=5,
+        #                                length_normalization_factor=0,
+        #                                cuda=True)
         # for i in range(10):
         #     src_seq, target_seq = val_data[i]
         #     src_seq = src_tok.detokenize(src_seq[1:-1])
@@ -184,10 +189,10 @@ def main():
         #                  % (i, src_seq, target_seq, pred))
 
         # remember best prec@1 and save checkpoint
-        is_best = val_perplexity < best_perplexity
-        best_perplexity = min(val_perplexity, best_perplexity)
+        is_best = val_perplexity > best_perplexity
+        best_perplexity = max(val_perplexity, best_perplexity)
         if is_best:
-            model.save(path=save_path)
+            trainer.save(is_best=True)
 
         logging.info('\n Epoch: {0}\t'
                      'Training Loss {train_loss:.4f} \t'
@@ -208,4 +213,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    args = parser.parse_args()
+    main(args)
