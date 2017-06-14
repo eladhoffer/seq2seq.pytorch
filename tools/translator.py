@@ -11,6 +11,7 @@ class Translator(object):
     def __init__(self, model, src_tok, target_tok,
                  beam_size=5,
                  length_normalization_factor=0,
+                 batch_first=False,
                  cuda=False):
         self.model = model
         self.src_tok = src_tok
@@ -18,6 +19,7 @@ class Translator(object):
         self.insert_target_start = [BOS]
         self.insert_src_start = [BOS]
         self.insert_src_end = [EOS]
+        self.batch_first = batch_first
         self.cuda = cuda
         if self.cuda:
             model.cuda()
@@ -25,8 +27,9 @@ class Translator(object):
             model.cpu()
         model.eval()
         self.generator = SequenceGenerator(
-            model=self.model.decode,
+            model=self.model.generate,
             beam_size=beam_size,
+            batch_first=batch_first,
             length_normalization_factor=length_normalization_factor)
 
     def set_src_language(self, language):
@@ -43,12 +46,14 @@ class Translator(object):
                                     insert_end=self.insert_src_end)
         bos = self.target_tok.tokenize(
             target_priming, insert_start=self.insert_target_start)
-        src = Variable(src, volatile=True)
-        bos = Variable(bos.view(-1, 1), volatile=True)
+        shape = (1, -1) if self.batch_first else (-1, 1)
+        src = Variable(src.view(*shape), volatile=True)
+        bos = Variable(bos.view(*shape), volatile=True)
         if self.cuda:
             src = src.cuda()
             bos = bos.cuda()
-        context = self.model.encode(src.view(-1, 1))
+        self.model.clear_state()
+        context = self.model.encode(src)
         if hasattr(self.model, 'bridge'):
             context = self.model.bridge(context)
         pred, logporob = self.generator.beam_search(bos, context)

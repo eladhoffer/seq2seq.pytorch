@@ -23,3 +23,9 @@ class Seq2Seq(nn.Module):
             context = self.bridge(context)
         output, hidden = self.decode(input_decoder, context)
         return output
+
+    def generate(self, inputs, context):
+        return self.decode(inputs, context)
+
+    def clear_state(self):
+        pass

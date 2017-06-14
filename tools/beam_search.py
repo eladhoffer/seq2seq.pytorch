@@ -99,6 +99,7 @@ class SequenceGenerator(object):
                  eos_id=EOS,
                  beam_size=3,
                  max_sequence_length=50,
+                 batch_first=False,
                  length_normalization_factor=0.0):
         """Initializes the generator.
 
@@ -116,6 +117,7 @@ class SequenceGenerator(object):
         self.beam_size = beam_size
         self.max_sequence_length = max_sequence_length
         self.length_normalization_factor = length_normalization_factor
+        self.batch_first = batch_first
 
     def beam_search(self, initial_input, initial_state=None):
         """Runs beam search sequence generation on a single image.
@@ -126,10 +128,13 @@ class SequenceGenerator(object):
         Returns:
           A list of Sequence sorted by descending score.
         """
+        time_dim = 1 if self.batch_first else 0
+        view_shape = (-1, 1) if self.batch_first else (1, -1)
 
         def get_topk(inputs, states):
             logits, new_states = self.model(inputs, states)
-            logprobs = log_softmax(logits[-1].view(-1, logits.size(-1)))
+            logits = logits.select(time_dim, -1).contiguous()  # use only last prediction
+            logprobs = log_softmax(logits.view(-1, logits.size(-1)))
             logprobs, words = logprobs.topk(self.beam_size, 1)
             return words.data, logprobs.data, new_states
 
@@ -152,16 +157,16 @@ class SequenceGenerator(object):
             partial_sequences.reset()
             input_feed = torch.LongTensor([c.sentence[-1]
                                            for c in partial_sequences_list])
-            input_feed = input_feed.view(1, -1)
+            input_feed = input_feed.view(*view_shape)
             if initial_input.is_cuda:
                 input_feed = input_feed.cuda()
             input_feed = Variable(input_feed, volatile=True)
             state_feed = [c.state for c in partial_sequences_list]
-            state_feed = merge_states(state_feed)
+            state_feed = self.merge_states(state_feed)
 
             words, logprobs, new_states = get_topk(input_feed, state_feed)
             for i, partial_sequence in enumerate(partial_sequences_list):
-                state = select_state(new_states, i)
+                state = self.select_state(new_states, i)
                 for k in range(self.beam_size):
                     w = words[i, k]
                     sentence = partial_sequence.sentence + [w]
@@ -191,22 +196,26 @@ class SequenceGenerator(object):
 
         return [c.sentence for c in caps], [c.score for c in caps]
 
+    def merge_states(self, state_list):
+        if isinstance(state_list[0], tuple):
+            return tuple([self.merge_states(s) for s in zip(*state_list)])
+        else:
+            if state_list[0] is None:
+                return None
+            if state_list[0].dim() == 3 and not self.batch_first:
+                batch_dim = 1
+            else:
+                batch_dim = 0
+            return torch.cat(state_list, batch_dim)
 
-def merge_states(state_list):
-    if isinstance(state_list[0], tuple):
-        return tuple([merge_states(s) for s in zip(*state_list)])
-    else:
-        if state_list[0] is None:
-            return None
-        batch_dim = 1 if state_list[0].dim() == 3 else 0
-        return torch.cat(state_list, batch_dim)
-
-
-def select_state(state, i):
-    if isinstance(state, tuple):
-        return tuple(select_state(s, i) for s in state)
-    else:
-        if state is None:
-            return None
-        batch_dim = 1 if state.dim() == 3 else 0
-        return state.narrow(batch_dim, i, 1)
+    def select_state(self, state, i):
+        if isinstance(state, tuple):
+            return tuple(self.select_state(s, i) for s in state)
+        else:
+            if state is None:
+                return None
+            if state.dim() == 3 and not self.batch_first:
+                batch_dim = 1
+            else:
+                batch_dim = 0
+            return state.narrow(batch_dim, i, 1)
