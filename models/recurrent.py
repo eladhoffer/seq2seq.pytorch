@@ -9,6 +9,7 @@ from torch.nn.utils.rnn import PackedSequence
 from .seq2seq import Seq2Seq
 from .attention import GlobalAttention
 
+
 class RecurrentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128,
@@ -66,7 +67,8 @@ class StackedRecurrentCells(nn.Module):
                 return h_state[i]
 
         if hidden is None:
-            zeros = inputs.data.new(inputs.size(0), self.num_layers, self.hidden_size).zero_()
+            zeros = inputs.data.new(
+                self.num_layers, inputs.size(0),  self.hidden_size).zero_()
             if isinstance(self.layers[0], nn.LSTMCell):
                 hidden = (Variable(zeros, requires_grad=False),
                           Variable(zeros, requires_grad=False))
