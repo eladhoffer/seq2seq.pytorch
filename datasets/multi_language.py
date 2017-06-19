@@ -14,7 +14,6 @@ sys.path.append(os.path.abspath(os.path.join(
 from tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
 from tools.config import *
 
-DATA_PATH = './data'
 __tokenizers = {
     'word': Tokenizer,
     'char': CharTokenizer,
@@ -27,7 +26,7 @@ def create_padded_batch(max_length=100, batch_first=False, sort=False, pack=Fals
         if not torch.is_tensor(seqs[0]):
             return tuple([collate(s) for s in zip(*seqs)])
         if sort or pack:  # packing requires a sorted batch by length
-            seqs.sort(key=lambda p: len(p), reverse=True)
+            seqs.sort(key=len, reverse=True)
         lengths = [min(len(s), max_length) for s in seqs]
         batch_length = max(lengths)
         seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(PAD)
@@ -82,6 +81,8 @@ class MultiLanguageDataset(object):
                     code_file = code_files or '{prefix}.{tok}.shared_codes_{num_symbols}_{languages}'.format(
                         prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
                     self.code_files = {l: code_file for l in languages}
+            else:
+                num_symbols = ''
 
             if not shared_vocab:
                 self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab{num_symbols}'.format(

@@ -11,7 +11,6 @@ defaults.width = 800
 defaults.height = 400
 defaults.tools = 'pan,box_zoom,wheel_zoom,box_select,hover,resize,reset,save'
 
-
 def setup_logging(log_file='log.txt'):
     """Setup logging configuration
     """
@@ -90,23 +89,12 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-__optimizers = {
-    'SGD': torch.optim.SGD,
-    'ASGD': torch.optim.ASGD,
-    'Adam': torch.optim.Adam,
-    'Adamax': torch.optim.Adamax,
-    'Adagrad': torch.optim.Adagrad,
-    'Adadelta': torch.optim.Adadelta,
-    'Rprop': torch.optim.Rprop,
-    'RMSprop': torch.optim.RMSprop
-}
-
 
 def adjust_optimizer(optimizer, epoch, config):
     """Reconfigures the optimizer according to epoch and config dict"""
     def modify_optimizer(optimizer, setting):
         if 'optimizer' in setting:
-            optimizer = __optimizers[setting['optimizer']](
+            optimizer = torch.optim.__dict__[setting['optimizer']](
                 optimizer.param_groups)
             logging.debug('OPTIMIZER - setting method = %s' %
                           setting['optimizer'])

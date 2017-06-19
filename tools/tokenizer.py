@@ -51,14 +51,20 @@ class Tokenizer(object):
         """segments a line to tokenizable items"""
         return str(line).lower().translate(string.punctuation).strip().split()
 
-    def get_vocab(self, filenames, limit=None):
-        # get combined vocabulary of all input texts
+    def get_vocab(self,  item_list, from_filenames=True, limit=None):
         vocab = Counter()
-        for fname in filenames:
-            with codecs.open(fname, encoding='UTF-8') as f:
-                for line in f:
-                    for word in self.segment(line):
-                        vocab[word] += 1
+        if from_filenames:
+            filenames = item_list
+            # get combined vocabulary of all input files
+            for fname in filenames:
+                with codecs.open(fname, encoding='UTF-8') as f:
+                    for line in f:
+                        for word in self.segment(line):
+                            vocab[word] += 1
+        else:
+            for line in item_list:
+                for word in self.segment(line):
+                    vocab[word] += 1
         self.vocab = vocab.most_common(limit)
         self.update_word2idx()
 
@@ -116,17 +122,24 @@ class BPETokenizer(Tokenizer):
             raise NameError('Learn bpe first!')
         return self.bpe.segment(line).strip().split()
 
-    def learn_bpe(self, filenames):
+    def learn_bpe(self, item_list, from_filenames=True):
         logging.info('generating bpe codes file. saving to %s' %
                      self.codes_file)
-        if isinstance(filenames, str):
-            filenames = [filenames]
+        if from_filenames:
+            filenames = item_list
+            if isinstance(filenames, str):
+                filenames = [filenames]
 
-        # get combined vocabulary of all input texts
-        full_vocab = Counter()
-        for fname in filenames:
-            with codecs.open(fname, encoding='UTF-8') as f:
-                full_vocab += learn_bpe.get_vocabulary(f)
+            # get combined vocabulary of all input files
+            full_vocab = Counter()
+            for fname in filenames:
+                with codecs.open(fname, encoding='UTF-8') as f:
+                    full_vocab += learn_bpe.get_vocabulary(f)
+        else:
+            # get combined vocabulary of all input texts
+            full_vocab = Counter()
+            full_vocab += learn_bpe.get_vocabulary(item_list)
+
         vocab_list = ['{0} {1}'.format(key, freq)
                       for (key, freq) in full_vocab.items()]
         # learn BPE on combined vocabulary

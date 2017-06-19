@@ -3,12 +3,13 @@ import torch.nn as nn
 
 class Seq2Seq(nn.Module):
 
-    def __init__(self, encoder=None, decoder=None, bridge=None):
+    def __init__(self, encoder=None, decoder=None, bridge=None, batch_first=False):
         super(Seq2Seq, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
         if bridge is not None:
             self.bridge = bridge
+        self.batch_first = batch_first
 
     def encode(self, inputs, hidden=None):
         return self.encoder(inputs, hidden)

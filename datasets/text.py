@@ -48,3 +48,8 @@ class LinedTextDataset(Dataset):
         new_dataset = copy(self)
         new_dataset.items = new_dataset.items[start:end]
         return new_dataset
+
+    def filter(self, filter_func):
+        new_dataset = copy(self)
+        new_dataset.items = [item for item in self if filter_func(item)]
+        return new_dataset

@@ -1,4 +1,6 @@
 import os
+import sys
+import logging
 import torch
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
@@ -7,153 +9,171 @@ from pycocotools.coco import COCO
 from .text import LinedTextDataset
 from random import randrange
 from PIL import ImageFile
+from torch.nn.utils.rnn import pack_padded_sequence
+
+sys.path.append(os.path.abspath(os.path.join(
+    os.path.dirname(__file__), '..', '..')))
+from tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
+from tools.config import *
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-__COCO_IMG_PATH = "/media/ssd/Datasets/COCO/"
-__COCO_ANN_PATH = "/media/ssd/Datasets/COCO/annotations/"
-
-__TRAIN_PATH = {'root': os.path.join(__COCO_IMG_PATH, 'train2014'),
-                'annFile': os.path.join(__COCO_ANN_PATH, 'captions_train2014.json')
-                }
-__VAL_PATH = {'root': os.path.join(__COCO_IMG_PATH, 'val2014'),
-              'annFile': os.path.join(__COCO_ANN_PATH, 'captions_val2014.json')
-              }
-
-__UNK_TOKEN = 'UNK'
-__PAD_TOKEN = 'PAD'
-__EOS_TOKEN = 'EOS'
-
-__normalize = {'mean': [0.485, 0.456, 0.406],
-               'std': [0.229, 0.224, 0.225]}
-
-class Captions(LinedTextDataset):
-    def __init__(self, filename, transform=None, load_mem=False):
-        self.filename = filename
-        self.load_mem = load_mem
-        self.transform = transform
-        coco = COCO(filename)
-        ids = list(coco.imgs.keys())
-        if self.load_mem:
-            self.items = []
-            for img_id in ids:
-                ann_ids = coco.getAnnIds(imgIds=img_id)
-                self.items.append(coco.loadAnns(ann_ids))
-        else:
-            self.items = ids = coco.imgs.keys()
-
-    def __getitem__(self, index):
-        if isinstance(index, slice):
-            return [self[idx] for idx in range(index.start or 0, index.stop or len(self), index.step or 1)]
-coco = COCO(annFile)
-ids = coco.imgs.keys()
-for img_id in ids:
-    ann_ids = coco.getAnnIds(imgIds=img_id)
-    anns = coco.loadAnns(ann_ids)
-        if self.load_mem:
-            item = self.items[index]
-        else:
-            with codecs.open(self.filename, encoding='UTF-8') as f:
-                f.seek(self.items[index])
-                item = f.readline()
-        if self.transform is not None:
-            item = self.transform(item)
-        return item
-def simple_tokenize(captions):
-    processed = []
-    for j, s in enumerate(captions):
-        txt = str(s).lower().translate(
-            string.punctuation).strip().split()
-        processed.append(txt)
-    return processed
+__tokenizers = {
+    'word': Tokenizer,
+    'char': CharTokenizer,
+    'bpe': BPETokenizer
+}
 
 
-def build_vocab(annFile=__TRAIN_PATH['annFile'], num_words=10000):
-    # count up the number of words
-    counts = {}
-    coco = COCO(annFile)
-    ids = coco.imgs.keys()
-    for img_id in ids:
-        ann_ids = coco.getAnnIds(imgIds=img_id)
-        anns = coco.loadAnns(ann_ids)
-        captions = simple_tokenize([ann['caption'] for ann in anns])
-        for txt in captions:
-            for w in txt:
-                counts[w] = counts.get(w, 0) + 1
-    cw = sorted([(count, w) for w, count in counts.items()], reverse=True)
+def imagenet_transform(scale_size=256, input_size=224, train=True):
+    normalize = {'mean': [0.485, 0.456, 0.406],
+                 'std': [0.229, 0.224, 0.225]}
 
-    vocab = [w for (_, w) in cw[:num_words]]
-    vocab = [__PAD_TOKEN] + vocab + [__UNK_TOKEN, __EOS_TOKEN]
-
-    return vocab
-
-
-def create_target(vocab, rnd_caption=True):
-    word2idx = {word: idx for idx, word in enumerate(vocab)}
-    unk = word2idx[__UNK_TOKEN]
-
-    def get_caption(captions):
-        captions = simple_tokenize(captions)
-        if rnd_caption:
-            idx = randrange(len(captions))
-        else:
-            idx = 0
-        caption = captions[idx]
-        targets = []
-        for w in caption:
-            targets.append(word2idx.get(w, unk))
-        return torch.Tensor(targets)
-    return get_caption
-
-
-def create_batches(vocab, max_length=50):
-    padding = vocab.index(__PAD_TOKEN)
-    eos = vocab.index(__EOS_TOKEN)
-
-    def collate(img_cap):
-        img_cap.sort(key=lambda p: len(p[1]), reverse=True)
-        imgs, caps = zip(*img_cap)
-        imgs = torch.cat([img.unsqueeze(0) for img in imgs], 0)
-        lengths = [min(len(c) + 1, max_length) for c in caps]
-        batch_length = max(lengths)
-        cap_tensor = torch.LongTensor(batch_length, len(caps)).fill_(padding)
-        for i, c in enumerate(caps):
-            end_cap = lengths[i] - 1
-            if end_cap < batch_length:
-                cap_tensor[end_cap, i] = eos
-
-            cap_tensor[:end_cap, i].copy_(c[:end_cap])
-
-        return (imgs, (cap_tensor, lengths))
-    return collate
-
-
-def get_coco_data(vocab, train=True, img_size=224, scale_size=256, normalize=__normalize):
     if train:
-        root, annFile = __TRAIN_PATH['root'], __TRAIN_PATH['annFile']
-        img_transform = transforms.Compose([
+        return transforms.Compose([
             transforms.Scale(scale_size),
-            transforms.RandomCrop(img_size),
+            transforms.RandomCrop(input_size),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(**normalize)
         ])
     else:
-        root, annFile = __VAL_PATH['root'], __VAL_PATH['annFile']
-        img_transform = transforms.Compose([
+        return transforms.Compose([
             transforms.Scale(scale_size),
-            transforms.CenterCrop(img_size),
+            transforms.CenterCrop(input_size),
             transforms.ToTensor(),
             transforms.Normalize(**normalize)
         ])
-    data = (dset.CocoCaptions(root=root, annFile=annFile, transform=img_transform,
-                              target_transform=create_target(vocab, train)), vocab)
-    return data
 
 
-def get_iterator(data, batch_size=32, max_length=30, shuffle=True, num_workers=4, pin_memory=True):
-    cap, vocab = data
-    return torch.utils.data.DataLoader(
-        cap,
-        batch_size=batch_size, shuffle=shuffle,
-        collate_fn=create_batches(vocab, max_length),
-        num_workers=num_workers, pin_memory=pin_memory)
+def create_padded_caption_batch(max_length=100, batch_first=False, sort=False, pack=False):
+    def collate(img_seq_tuple):
+
+        if sort or pack:  # packing requires a sorted batch by length
+            img_seq_tuple.sort(key=lambda p: len(p[1]), reverse=True)
+        imgs, seqs = zip(*img_seq_tuple)
+        imgs = torch.cat([img.unsqueeze(0) for img in imgs], 0)
+        lengths = [min(len(s), max_length) for s in seqs]
+        batch_length = max(lengths)
+        seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(PAD)
+        for i, s in enumerate(seqs):
+            end_seq = lengths[i]
+            seq_tensor[:end_seq, i].copy_(s[:end_seq])
+        if batch_first:
+            seq_tensor = seq_tensor.t()
+        if pack:
+            seq_tensor = pack_padded_sequence(
+                seq_tensor, lengths, batch_first=batch_first)
+        else:
+            seq_tensor = (seq_tensor, lengths)
+        return (imgs, seq_tensor)
+    return collate
+
+
+class CocoCaptions(object):
+    """docstring for Dataset."""
+
+    def __init__(self, root, img_transform=imagenet_transform(),
+                 split='train',
+                 tokenization='bpe',
+                 num_symbols=32000,
+                 shared_vocab=True,
+                 code_file=None,
+                 vocab_file=None,
+                 insert_start=[BOS], insert_end=[EOS],
+                 mark_language=False,
+                 tokenizer=None,
+                 sample_caption=True):
+        super(CocoCaptions, self).__init__()
+        self.shared_vocab = shared_vocab
+        self.num_symbols = num_symbols
+        self.tokenizer = tokenizer
+        self.tokenization = tokenization
+        self.insert_start = insert_start
+        self.insert_end = insert_end
+        self.mark_language = mark_language
+        self.code_file = code_file
+        self.vocab_file = vocab_file
+        self.sample_caption = None
+        if split == 'train':
+            path = {'root': os.path.join(root, 'train2014'),
+                    'annFile': os.path.join(root, 'annotations/captions_train2014.json')
+                    }
+            if sample_caption:
+                self.sample_caption = randrange
+        else:
+            path = {'root': os.path.join(root, 'val2014'),
+                    'annFile': os.path.join(root, 'annotations/captions_val2014.json')
+                    }
+            if sample_caption:
+                self.sample_caption = lambda l: 0
+
+        self.data = dset.CocoCaptions(root=path['root'], annFile=path[
+                                      'annFile'], transform=img_transform)
+
+        if self.tokenizer is None:
+            prefix = os.path.join(root, 'coco')
+            if tokenization not in ['bpe', 'char', 'word']:
+                raise ValueError("An invalid option for tokenization was used, options are {0}".format(
+                    ','.join(['bpe', 'char', 'word'])))
+
+            if tokenization == 'bpe':
+                self.code_file = code_file or '{prefix}.{lang}.{tok}.codes_{num_symbols}'.format(
+                    prefix=prefix, lang='en', tok=tokenization, num_symbols=num_symbols)
+            else:
+                num_symbols = ''
+
+            self.vocab_file = vocab_file or '{prefix}.{lang}.{tok}.vocab{num_symbols}'.format(
+                prefix=prefix, lang='en', tok=tokenization, num_symbols=num_symbols)
+            self.generate_tokenizer()
+
+    def generate_tokenizer(self):
+        additional_tokens = None
+        if self.mark_language:
+            additional_tokens = [LANGUAGE_TOKENS['en']]
+
+        sentences = (d['caption'] for d in self.data.coco.anns.values())
+        if self.tokenization == 'bpe':
+            tokz = BPETokenizer(self.code_file,
+                                vocab_file=self.vocab_file,
+                                num_symbols=self.num_symbols,
+                                additional_tokens=additional_tokens)
+            if not hasattr(tokz, 'bpe'):
+                tokz.learn_bpe(sentences, from_filenames=False)
+        else:
+            tokz = __tokenizer[self.tokenization](
+                vocab_file=self.vocab_file,
+                additional_tokens=additional_tokens)
+
+        if not hasattr(tokz, 'vocab'):
+            logging.info('generating vocabulary. saving to %s' %
+                         self.vocab_file)
+            tokz.get_vocab(sentences, from_filenames=False)
+            tokz.save_vocab(self.vocab_file)
+        self.tokenizer = tokz
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[idx] for idx in range(index.start or 0, index.stop or len(self), index.step or 1)]
+        img, captions = self.data[index]
+        if self.sample_caption is None:
+            captions = [self.tokenizer.tokenize(c) for c in captions]
+        else:
+            captions = self.tokenizer.tokenize(
+                captions[self.sample_caption(len(captions))])
+        return (img, captions)
+
+    def __len__(self):
+        return len(self.data)
+
+    def get_loader(self, batch_size=1, shuffle=False, pack=False, sampler=None, num_workers=0,
+                   max_length=100, batch_first=False, pin_memory=False, drop_last=False):
+        collate_fn = create_padded_caption_batch(
+            max_length=max_length, pack=pack, batch_first=batch_first)
+        return torch.utils.data.DataLoader(self,
+                                           batch_size=batch_size,
+                                           collate_fn=collate_fn,
+                                           sampler=sampler,
+                                           shuffle=shuffle,
+                                           num_workers=num_workers,
+                                           pin_memory=pin_memory,
+                                           drop_last=drop_last)

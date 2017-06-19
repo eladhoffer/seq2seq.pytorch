@@ -42,8 +42,9 @@ class GlobalAttention(nn.Module):
     def forward(self, inputs, context):
         """
         inputs: batch x dim
-        context: batch x sourceL x dim
+        context: sourceL x batch x dim
         """
+        context = context.transpose(0,1)
         targetT = self.linear_in(inputs).unsqueeze(2)  # batch x dim x 1
 
         # Get attention

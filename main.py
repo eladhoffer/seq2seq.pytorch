@@ -19,7 +19,6 @@ from tools.translator import Translator
 Datasets = ['WMT16_de_en', 'OpenSubtitles2016']
 Models = ['Transformer', 'RecurrentAttentionSeq2Seq', 'GNMT']
 Trainers = ['MultiSeq2SeqTrainer', 'Seq2SeqTrainer']
-BatchFirstModels = ['Transformer']
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
 parser.add_argument('--dataset', metavar='DATASET', default='WMT16_de_en',
@@ -99,7 +98,6 @@ def main(args):
     else:
         args.gpus = None
 
-    batch_first = args.model in BatchFirstModels
     data_config = dict(root=args.dataset_dir)
     if data_config is not '':
         data_config = dict(data_config, **literal_eval(args.data_config))
@@ -108,6 +106,18 @@ def main(args):
     val_data = dataset(**data_config, split='dev')
     _, target_tok = train_data.tokenizers.values()
 
+
+    regime = literal_eval(args.optimization_config)
+
+    regime = literal_eval(args.optimization_config)
+    model_config = dict(vocab_size=target_tok.vocab_size(),
+                        **literal_eval(args.model_config))
+    model = getattr(models, args.model)(**model_config)
+    batch_first = getattr(model, 'batch_first', False)
+
+    logging.info(model)
+
+    #define data loaders
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          batch_first=batch_first,
                                          shuffle=True,
@@ -116,13 +126,6 @@ def main(args):
                                      batch_first=batch_first,
                                      shuffle=False,
                                      num_workers=args.workers)
-    regime = literal_eval(args.optimization_config)
-
-    regime = literal_eval(args.optimization_config)
-    model_config = dict(vocab_size=target_tok.vocab_size(),
-                        **literal_eval(args.model_config))
-    model = getattr(models, args.model)(**model_config)
-    print(model)
     # define loss function (criterion) and optimizer
     loss_weight = torch.ones(target_tok.vocab_size())
     loss_weight[PAD] = 0

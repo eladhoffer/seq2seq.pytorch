@@ -128,7 +128,7 @@ class TransformerAttentionDecoder(nn.Module):
 class Transformer(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, tie_embedding=True):
-        super(Transformer, self).__init__()
+        super(Transformer, self).__init__(batch_first=True)
         self.encoder = TransformerAttentionEncoder(vocab_size, hidden_size=hidden_size,
                                                    num_layers=num_layers, num_heads=num_heads, dropout=dropout)
         self.decoder = TransformerAttentionDecoder(vocab_size, hidden_size=hidden_size,

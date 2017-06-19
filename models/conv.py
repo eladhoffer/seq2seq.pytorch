@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .modules import LayerNorm1d, MaskedConv1d, GatedConv1d
+from .seq2seq import Seq2Seq
 
 class StackedConv(nn.Module):
 
@@ -72,11 +73,11 @@ class ConvDecoder(nn.Module):
         return x
 
 
-class ConvSeq2Seq(nn.Module):
+class ConvSeq2Seq(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=256, kernel_size=3,
                  num_layers=4, bias=True, dropout=0):
-        super(ConvSeq2Seq, self).__init__()
+        super(ConvSeq2Seq, self).__init__(batch_first=True)
         self.encoder = ConvEncoder(vocab_size, hidden_size=hidden_size, kernel_size=kernel_size,
                                    num_layers=num_layers, bias=bias, dropout=dropout, causal=False)
         self.decoder = ConvDecoder(vocab_size, hidden_size=hidden_size, kernel_size=kernel_size,

@@ -195,3 +195,11 @@ class MultiSeq2SeqTrainer(Seq2SeqTrainer):
         src = (src_full, src_length_full)
         target = (target_full, target_length_full)
         return super(MultiSeq2SeqTrainer, self).iterate(src, target, training)
+
+
+class Img2SeqTrainer(Seq2SeqTrainer):
+    """class for Trainer."""
+
+    def iterate(self, src_img, target, training=True):
+        src = (src_img, None)
+        return super(Img2SeqTrainer, self).iterate(src, target, training)

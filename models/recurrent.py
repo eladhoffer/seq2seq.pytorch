@@ -110,7 +110,7 @@ class RecurrentAttention(nn.Module):
         for input_t in inputs.split(1):
             input_t = input_t.squeeze(0)
             output_t, hidden = self.rnn(input_t, hidden)
-            output_t, attn = self.attn(output_t, context.t())
+            output_t, attn = self.attn(output_t, context)
             output_t = self.dropout(output_t)
             outputs += [output_t]
             if get_attention:

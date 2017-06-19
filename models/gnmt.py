@@ -7,19 +7,18 @@ from .recurrent import RecurrentAttention
 class GNMT(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=512,
-                 num_layers=8, bias=True, batch_first=False,
+                 num_layers=8, bias=True,
                  dropout=0, gpu_assignment=None):
         super(GNMT, self).__init__()
         self.gpu_assignment = gpu_assignment
         self.encoder = ResidualRecurrentEncoder(vocab_size, hidden_size,
-                                                num_layers, bias, batch_first,
+                                                num_layers, bias,
                                                 dropout)
         if self.gpu_assignment is not None:
             self.encoder.cuda(self.gpu_assignment.get('encoder', 0))
         self.decoder = ResidualRecurrentDecoder(vocab_size, hidden_size=hidden_size,
                                                 num_layers=num_layers,
                                                 bias=bias,
-                                                batch_first=batch_first,
                                                 dropout=dropout)
         if self.gpu_assignment is not None:
             self.decoder.cuda(self.gpu_assignment.get('decoder', 0))
@@ -54,7 +53,7 @@ class GNMT(Seq2Seq):
 class ResidualRecurrentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128,
-                 num_layers=8, bias=True, batch_first=False,
+                 num_layers=8, bias=True,
                  dropout=0):
         super(ResidualRecurrentEncoder, self).__init__()
         self.rnn_layers = nn.ModuleList()
@@ -82,7 +81,7 @@ class ResidualRecurrentEncoder(nn.Module):
 class ResidualRecurrentDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128,
-                 num_layers=8, bias=True, batch_first=False,
+                 num_layers=8, bias=True,
                  dropout=0):
         super(ResidualRecurrentDecoder, self).__init__()
 
