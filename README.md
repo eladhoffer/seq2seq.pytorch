@@ -1,4 +1,4 @@
-context.transpose(0,1)# seq2seq.pytorch
+# seq2seq.pytorch
 This is a complete suite for training sequence-to-sequence models in [PyTorch](www.pytorch.org). It consists of several models and code to both train and infer using them.
 
 Using this code you can train:
@@ -8,8 +8,8 @@ Using this code you can train:
 * Skip-thought sentence representations
 * And more..
 
-## Available modules:
-### Datasets
+
+## Datasets
 Datasets currently available:
 
 * WMT16
@@ -25,7 +25,7 @@ All datasets can be tokenized using 3 available segmentation methods:
 
 After choosing a tokenization method, a vocabulary will be generated and saved for future inference.
 
-### Models
+## Models
 Models currently available:
 * Simple Seq2Seq recurrent model
 * Recurrent Seq2Seq with attentional decoder
@@ -33,7 +33,7 @@ Models currently available:
 * Transformer - attention-only model from [transformer](?)
 * ByteNet - convolution based encoder+decoder
 
-### Training methods
+## Training methods
 The models can be trained using several methods:
 
 * Basic Seq2Seq - given encoded sequence, generate (decode) output sequence. Training is done with teacher-forcing.
