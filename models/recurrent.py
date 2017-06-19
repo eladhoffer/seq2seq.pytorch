@@ -10,6 +10,16 @@ from .seq2seq import Seq2Seq
 from .attention import GlobalAttention
 
 
+def bridge_bidirectional_hidden(hidden):
+    #  the bidirectional hidden is  (layers*directions) x batch x dim
+    #  we need to convert it to layers x batch x (directions*dim)
+    num_layers = hidden.size(0) // 2
+    batch_size, hidden_size = hidden.size(1), hidden.size(2)
+    return hidden.view(num_layers, 2, batch_size, hidden_size) \
+        .transpose(1, 2).contiguous() \
+        .view(num_layers, batch_size, hidden_size * 2)
+
+
 class RecurrentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128,
@@ -180,14 +190,10 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
 
     def bridge(self, context):
         context, hidden = context
-        #  the encoder hidden is  (layers*directions) x batch x dim
-        #  we need to convert it to layers x batch x (directions*dim)
         new_hidden = []
         for h in hidden:
             if self.encoder.bidirectional:
-                new_h = h.view(h.size(0) // 2, 2, h.size(1), h.size(2)) \
-                    .transpose(1, 2).contiguous() \
-                    .view(h.size(0) // 2, h.size(1), h.size(2) * 2)
+                new_h = bridge_bidirectional_hidden(h)
             else:
                 new_h = h
             new_hidden.append(new_h)

@@ -8,7 +8,7 @@ import math
 from tools.quantize import quantize_model, dequantize_model
 
 cuda = False
-checkpoint = torch.load('./results/en_he_onmt/checkpoint.pth.tar')
+checkpoint = torch.load('./results/gnmt_wmt16/checkpoint.pth.tar')
 model = checkpoint['model']
 # quantize_model(model)
 # checkpoint['state_dict'] = checkpoint['model'].state_dict()
@@ -27,5 +27,5 @@ translation_model = Translator(model,
 # print(translation_model.translate('hello world')[::-1])
 
 while True:
-    src= input()
-    print(translation_model.translate(src)[::-1])
+    src= raw_input()
+    print(translation_model.translate(src))

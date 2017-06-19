@@ -26,8 +26,9 @@ class EncoderBlock(nn.Module):
 
         super(EncoderBlock, self).__init__()
         self.lnorm = LayerNorm1d(hidden_size)
+        self.dropout = nn.Dropout(dropout)
         self.attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, causal=False)
+            hidden_size, hidden_size, num_heads, dropout=dropout, causal=False)
         self.fc = nn.Sequential(nn.Linear(hidden_size, inner_linear),
                                 nn.ReLU(inplace=True),
                                 nn.Linear(inner_linear, hidden_size))
@@ -37,11 +38,13 @@ class EncoderBlock(nn.Module):
         res = x
         x = self.attention(x, x, x)
         x = res + x
+        x = self.dropout(x)
         x = self.lnorm(x)
         res = x
         x = x.view(-1, x.size(2))
         x = self.fc(x)
         x = x.view(res.size(0), res.size(1), res.size(2))
+        x = self.dropout(x)
         x = res + x
         x = self.lnorm(x)
 
@@ -54,10 +57,11 @@ class DecoderBlock(nn.Module):
 
         super(DecoderBlock, self).__init__()
         self.lnorm = LayerNorm1d(hidden_size)
+        self.dropout = nn.Dropout(dropout)
         self.attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, causal=False)
+            hidden_size, hidden_size, num_heads, dropout=dropout, causal=False)
         self.masked_attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, causal=True)
+            hidden_size, hidden_size, num_heads, dropout=dropout, causal=True)
         self.fc = nn.Sequential(nn.Linear(hidden_size, inner_linear),
                                 nn.ReLU(inplace=True),
                                 nn.Linear(inner_linear, hidden_size))
@@ -66,16 +70,19 @@ class DecoderBlock(nn.Module):
         x = inputs
         res = x
         x = self.masked_attention(x, x, x)
+        x = self.dropout(x)
         x = res + x
         x = self.lnorm(x)
         res = x
         x = self.attention(x, context, context)
+        x = self.dropout(x)
         x = res + x
         x = self.lnorm(x)
         res = x
         x = x.view(-1, x.size(2))
         x = self.fc(x)
         x = x.view(res.size(0), res.size(1), res.size(2))
+        x = self.dropout(x)
         x = res + x
         x = self.lnorm(x)
 
@@ -127,7 +134,7 @@ class TransformerAttentionDecoder(nn.Module):
 
 class Transformer(Seq2Seq):
 
-    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, tie_embedding=True):
+    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0.3, tie_embedding=True):
         super(Transformer, self).__init__(batch_first=True)
         self.encoder = TransformerAttentionEncoder(vocab_size, hidden_size=hidden_size,
                                                    num_layers=num_layers, num_heads=num_heads, dropout=dropout)

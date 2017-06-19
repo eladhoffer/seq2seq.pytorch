@@ -102,8 +102,8 @@ def main(args):
     if data_config is not '':
         data_config = dict(data_config, **literal_eval(args.data_config))
     dataset = getattr(datasets, args.dataset)
-    train_data = dataset(**data_config, split='train')
-    val_data = dataset(**data_config, split='dev')
+    train_data = dataset(split='train', **data_config)
+    val_data = dataset(split='dev', **data_config)
     _, target_tok = train_data.tokenizers.values()
 
 
@@ -140,6 +140,7 @@ def main(args):
                    'config': args},
         regime=regime,
         batch_first=batch_first,
+        gpus=args.gpus,
         print_freq=args.print_freq)
 
     trainer_options['model'] = model

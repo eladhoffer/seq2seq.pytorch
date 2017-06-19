@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.optim
 import torch.utils.data
+from torch.nn.parallel import DataParallel
 from torch.autograd import Variable
 from torch.nn.utils import clip_grad_norm
 import shutil
@@ -24,6 +25,7 @@ class Seq2SeqTrainer(object):
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth.tar',
                  keep_checkpoints=5,
+                 gpus=None,
                  cuda=True):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
@@ -41,6 +43,8 @@ class Seq2SeqTrainer(object):
         self.print_freq = print_freq
         self.batch_first = batch_first
         self.perplexity = None
+        self.gpus = gpus
+
 
     def iterate(self, src, target, training=True):
         src, src_length = src
@@ -54,10 +58,10 @@ class Seq2SeqTrainer(object):
         # compute output
 
         if self.batch_first:
-            output = self.model(src_var, target_var[:, :-1])
+            output = self.model(src_var, target_var[:, :-1], device_ids=self.gpus)
             target_labels = target_var[:, 1:]
         else:
-            output = self.model(src_var, target_var[:-1])
+            output = self.model(src_var, target_var[:-1], device_ids=self.gpus)
             target_labels = target_var[1:]
 
         T, B = output.size(0), output.size(1)

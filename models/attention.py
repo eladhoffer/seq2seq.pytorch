@@ -44,7 +44,7 @@ class GlobalAttention(nn.Module):
         inputs: batch x dim
         context: sourceL x batch x dim
         """
-        context = context.transpose(0,1)
+        context = context.transpose(0, 1)
         targetT = self.linear_in(inputs).unsqueeze(2)  # batch x dim x 1
 
         # Get attention
@@ -67,9 +67,10 @@ class SDPAttention(nn.Module):
     Scaled Dot-Product Attention
     """
 
-    def __init__(self, causal=False):
+    def __init__(self, dropout=0, causal=False):
         super(SDPAttention, self).__init__()
         self.causal = causal
+        self.dropout = nn.Dropout(dropout)
         self.softmax = nn.Softmax()
 
     def forward(self, q, k, v):
@@ -87,6 +88,7 @@ class SDPAttention(nn.Module):
             mask = mask.unsqueeze(0).expand(b, t_q, t_k)
             qk.data.masked_fill_(mask, -float('inf'))
         sm_qk = self.softmax(qk.view(-1, t_k)).view(b, t_q, t_k)
+        sm_qk = self.dropout(sm_qk)
         return torch.bmm(sm_qk, v)  # b x t_q x dim_v
 
 
@@ -95,7 +97,7 @@ class MultiHeadAttention(nn.Module):
     Scaled Dot-Product Attention
     """
 
-    def __init__(self, input_size, output_size, num_heads, causal=False):
+    def __init__(self, input_size, output_size, num_heads, dropout=0, causal=False):
         super(MultiHeadAttention, self).__init__()
         assert(input_size % num_heads == 0)
         self.input_size = input_size
@@ -105,7 +107,7 @@ class MultiHeadAttention(nn.Module):
         self.linear_k = nn.Linear(input_size, input_size)
         self.linear_v = nn.Linear(input_size, input_size)
         self.linear_out = nn.Linear(input_size, output_size)
-        self.sdp_attention = SDPAttention(causal=causal)
+        self.sdp_attention = SDPAttention(dropout=dropout, causal=causal)
 
     def forward(self, q, k, v):
 
