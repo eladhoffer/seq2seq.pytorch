@@ -26,7 +26,7 @@ class GNMT(Seq2Seq):
 
     def bridge(self, context):
         context, hidden = context
-        if not self.transfer_hidden:
+        if self.transfer_hidden:
             new_hidden = [tuple([bridge_bidirectional_hidden(h)
                                  for h in hidden[0]])]
             for i in range(1, len(hidden)):
@@ -34,6 +34,7 @@ class GNMT(Seq2Seq):
             return (context, tuple(new_hidden))
         else:
             return (context, None)
+
 
     def forward(self, input_encoder, input_decoder, encoder_state=None, device_ids=None):
         def cast_device(x, device):
@@ -122,10 +123,10 @@ class ResidualRecurrentDecoder(nn.Module):
             x, h, attentions = self.rnn_layers[0](x, hidden[0], enc_context,
                                                   get_attention=True)
         else:
-            x, h = self.rnn_layers[0](x, hidden[1], enc_context)
+            x, h = self.rnn_layers[0](x, hidden[0], enc_context)
         next_hidden.append(h)
         dec_context = x
-        x, h = self.rnn_layers[1](x)
+        x, h = self.rnn_layers[1](x, hidden[1])
         next_hidden.append(h)
         for i in range(2, len(self.rnn_layers)):
             residual = x
