@@ -11,6 +11,7 @@ class Translator(object):
     def __init__(self, model, src_tok, target_tok,
                  beam_size=5,
                  length_normalization_factor=0,
+                 max_sequence_length=50,
                  batch_first=False,
                  cuda=False):
         self.model = model
@@ -30,6 +31,7 @@ class Translator(object):
             model=self.model.generate,
             beam_size=beam_size,
             batch_first=batch_first,
+            max_sequence_length=max_sequence_length,
             length_normalization_factor=length_normalization_factor)
 
     def set_src_language(self, language):

@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('input', help='input file for translation')
 parser.add_argument('-o', '--output', help='output file')
-parser.add_argument('-m', '--model', default='./results/recurrent_attention_wmt16/checkpoint.pth.tar',
+parser.add_argument('-m', '--model', default='./results/gnmt_wmt16/checkpoint3.pth.tar',
                     help='model checkpoint file')
 parser.add_argument('--beam_size', default=5, type=int,
                     help='beam size used')
@@ -25,8 +25,9 @@ if __name__ == '__main__':
     translation_model = Translator(model,
                                    src_tok=src_tok,
                                    target_tok=target_tok,
-                                   beam_size=5,
-                                   length_normalization_factor=0,
+                                   beam_size=12,
+                                   max_sequence_length=100,
+                                   length_normalization_factor=0.6,
                                    cuda=cuda)
 
     output_file = codecs.open(args.output, 'w', encoding='UTF-8')
