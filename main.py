@@ -14,17 +14,12 @@ import datasets
 from tools.utils import setup_logging, ResultsLog
 import tools.trainer as trainers
 from tools.config import PAD
-from tools.translator import Translator
-
-Datasets = ['WMT16_de_en', 'OpenSubtitles2016']
-Models = ['Transformer', 'RecurrentAttentionSeq2Seq', 'GNMT']
-Trainers = ['MultiSeq2SeqTrainer', 'Seq2SeqTrainer']
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
 parser.add_argument('--dataset', metavar='DATASET', default='WMT16_de_en',
-                    choices=Datasets,
+                    choices=datasets.__all__,
                     help='dataset used: ' +
-                    ' | '.join(Datasets) +
+                    ' | '.join(datasets.__all__) +
                     ' (default: WMT16_de_en)')
 parser.add_argument('--dataset_dir', metavar='DATASET_DIR',
                     help='dataset dir')
@@ -36,22 +31,21 @@ parser.add_argument('--results_dir', metavar='RESULTS_DIR', default='./results',
 parser.add_argument('--save', metavar='SAVE', default='',
                     help='saved folder')
 parser.add_argument('--model', metavar='MODEL', default='RecurrentAttentionSeq2Seq',
-                    choices=Models,
+                    choices=models.__all__,
                     help='model architecture: ' +
-                    ' | '.join(Models) +
+                    ' | '.join(models.__all__) +
                     ' (default: RecurrentAttentionSeq2Seq)')
 parser.add_argument('--model_config', default="{'hidden_size:256','num_layers':2}",
                     help='architecture configuration')
-
+parser.add_argument('--devices', default='0',
+                    help='device assignment (e.g "0,1", {"encoder":0, "decoder":1})')
 parser.add_argument('--trainer', metavar='TRAINER', default='Seq2SeqTrainer',
-                    choices=Trainers,
+                    choices=trainers.__all__,
                     help='trainer used: ' +
-                    ' | '.join(Trainers) +
+                    ' | '.join(trainers.__all__) +
                     ' (default: Seq2SeqTrainer)')
 parser.add_argument('--type', default='torch.cuda.FloatTensor',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
-parser.add_argument('--gpus', default='0',
-                    help='gpus used for training - e.g 0,1,3')
 parser.add_argument('-j', '--workers', default=8, type=int,
                     help='number of data loading workers (default: 8)')
 parser.add_argument('--epochs', default=90, type=int,
@@ -91,12 +85,17 @@ def main(args):
     logging.info("saving to %s", save_path)
     logging.debug("run arguments: %s", args)
 
+    args.devices = literal_eval(args.devices)
     if 'cuda' in args.type:
-        args.gpus = [int(i) for i in args.gpus.split(',')]
-        torch.cuda.set_device(args.gpus[0])
+        main_gpu = 0
+        if isinstance(args.devices, tuple):
+            main_gpu = args.devices[0]
+        elif isinstance(args.devices, int):
+            main_gpu = args.devices
+        elif isinstance(args.devices, dict):
+            main_gpu = args.devices.get('input', 0)
+        torch.cuda.set_device(main_gpu)
         cudnn.benchmark = True
-    else:
-        args.gpus = None
 
     data_config = dict(root=args.dataset_dir)
     if data_config is not '':
@@ -105,7 +104,6 @@ def main(args):
     train_data = dataset(split='train', **data_config)
     val_data = dataset(split='dev', **data_config)
     _, target_tok = train_data.tokenizers.values()
-
 
     regime = literal_eval(args.optimization_config)
 
@@ -117,7 +115,7 @@ def main(args):
 
     logging.info(model)
 
-    #define data loaders
+    # define data loaders
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          batch_first=batch_first,
                                          shuffle=True,
@@ -140,7 +138,7 @@ def main(args):
                    'config': args},
         regime=regime,
         batch_first=batch_first,
-        gpus=args.gpus,
+        devices=args.devices,
         print_freq=args.print_freq)
 
     trainer_options['model'] = model
@@ -174,23 +172,6 @@ def main(args):
 
         # evaluate on validation set
         val_loss, val_perplexity = trainer.evaluate(val_loader)
-        #
-        # translation_model = Translator(model,
-        #                                src_tok=src_tok,
-        #                                target_tok=target_tok,
-        #                                beam_size=5,
-        #                                length_normalization_factor=0,
-        #                                cuda=True)
-        # for i in range(10):
-        #     src_seq, target_seq = val_data[i]
-        #     src_seq = src_tok.detokenize(src_seq[1:-1])
-        #     target_seq = target_tok.detokenize(target_seq[1:-1])
-        #     pred = translation_model.translate(src_seq)
-        #     logging.info('\n Example %s:'
-        #                  '\n \t Source: %s'
-        #                  '\n \t Target: %s'
-        #                  '\n \t Prediction: %s'
-        #                  % (i, src_seq, target_seq, pred))
 
         # remember best prec@1 and save checkpoint
         is_best = val_perplexity > best_perplexity

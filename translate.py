@@ -4,7 +4,7 @@ import argparse
 import os
 import codecs
 import torch
-from tools.translator import Translator
+from tools.inference import Translator
 parser = argparse.ArgumentParser(
     description='Translate a file using pretrained model')
 

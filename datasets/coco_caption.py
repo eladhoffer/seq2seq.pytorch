@@ -5,7 +5,7 @@ import torch
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import string
-from pycocotools.coco import COCO
+from collections import OrderedDict
 from .text import LinedTextDataset
 from random import randrange
 from PIL import ImageFile
@@ -24,7 +24,7 @@ __tokenizers = {
 }
 
 
-def imagenet_transform(scale_size=256, input_size=224, train=True):
+def imagenet_transform(scale_size=256, input_size=224, train=True, allow_var_size=False):
     normalize = {'mean': [0.485, 0.456, 0.406],
                  'std': [0.229, 0.224, 0.225]}
 
@@ -33,6 +33,12 @@ def imagenet_transform(scale_size=256, input_size=224, train=True):
             transforms.Scale(scale_size),
             transforms.RandomCrop(input_size),
             transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(**normalize)
+        ])
+    elif allow_var_size:
+        return transforms.Compose([
+            transforms.Scale(scale_size),
             transforms.ToTensor(),
             transforms.Normalize(**normalize)
         ])
@@ -60,6 +66,8 @@ def create_padded_caption_batch(max_length=100, batch_first=False, sort=False, p
             seq_tensor[:end_seq, i].copy_(s[:end_seq])
         if batch_first:
             seq_tensor = seq_tensor.t()
+        else:
+            imgs = imgs.unsqueeze(0)
         if pack:
             seq_tensor = pack_padded_sequence(
                 seq_tensor, lengths, batch_first=batch_first)
@@ -72,7 +80,7 @@ def create_padded_caption_batch(max_length=100, batch_first=False, sort=False, p
 class CocoCaptions(object):
     """docstring for Dataset."""
 
-    def __init__(self, root, img_transform=imagenet_transform(),
+    def __init__(self, root, img_transform=imagenet_transform,
                  split='train',
                  tokenization='bpe',
                  num_symbols=32000,
@@ -94,6 +102,7 @@ class CocoCaptions(object):
         self.code_file = code_file
         self.vocab_file = vocab_file
         self.sample_caption = None
+        self.img_transform = img_transform
         if split == 'train':
             path = {'root': os.path.join(root, 'train2014'),
                     'annFile': os.path.join(root, 'annotations/captions_train2014.json')
@@ -108,7 +117,7 @@ class CocoCaptions(object):
                 self.sample_caption = lambda l: 0
 
         self.data = dset.CocoCaptions(root=path['root'], annFile=path[
-                                      'annFile'], transform=img_transform)
+                                      'annFile'], transform=img_transform(train= (split=='train')))
 
         if self.tokenizer is None:
             prefix = os.path.join(root, 'coco')
@@ -177,3 +186,8 @@ class CocoCaptions(object):
                                            num_workers=num_workers,
                                            pin_memory=pin_memory,
                                            drop_last=drop_last)
+
+
+    @property
+    def tokenizers(self):
+        return OrderedDict(img=self.img_transform, en=self.tokenizer)

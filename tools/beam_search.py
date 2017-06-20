@@ -14,7 +14,7 @@ from .config import EOS
 class Sequence(object):
     """Represents a complete or partial sequence."""
 
-    def __init__(self, sentence, state, logprob, score):
+    def __init__(self, sentence, state, logprob, score, attention=None):
         """Initializes the Sequence.
 
         Args:
@@ -27,6 +27,7 @@ class Sequence(object):
         self.state = state
         self.logprob = logprob
         self.score = score
+        self.attention = attention
 
     def __cmp__(self, other):
         """Compares Sequences by score."""
@@ -100,6 +101,7 @@ class SequenceGenerator(object):
                  beam_size=3,
                  max_sequence_length=50,
                  batch_first=False,
+                 get_attention=False,
                  length_normalization_factor=0.0):
         """Initializes the generator.
 
@@ -118,6 +120,7 @@ class SequenceGenerator(object):
         self.max_sequence_length = max_sequence_length
         self.length_normalization_factor = length_normalization_factor
         self.batch_first = batch_first
+        self.get_attention = get_attention
 
     def beam_search(self, initial_input, initial_state=None):
         """Runs beam search sequence generation on a single image.
@@ -132,23 +135,32 @@ class SequenceGenerator(object):
         view_shape = (-1, 1) if self.batch_first else (1, -1)
 
         def get_topk(inputs, states):
-            logits, new_states = self.model(inputs, states)
-            logits = logits.select(time_dim, -1).contiguous()  # use only last prediction
+            if self.get_attention:
+                logits, new_states, attention = self.model(
+                    inputs, states, get_attention=True)
+                attention = attention.data.select(time_dim, -1)
+            else:
+                attention = None
+                logits, new_states = self.model(inputs, states)
+            # use only last prediction
+            logits = logits.select(time_dim, -1).contiguous()
             logprobs = log_softmax(logits.view(-1, logits.size(-1)))
             logprobs, words = logprobs.topk(self.beam_size, 1)
-            return words.data, logprobs.data, new_states
+            return words.data, logprobs.data, new_states, attention
 
         partial_sequences = TopN(self.beam_size)
         complete_sequences = TopN(self.beam_size)
 
-        words, logprobs, new_state = get_topk(initial_input, initial_state)
+        words, logprobs, new_state, attention = get_topk(
+            initial_input, initial_state)
 
         for k in range(self.beam_size):
             cap = Sequence(
                 sentence=[words[0, k]],
                 state=new_state,
                 logprob=logprobs[0, k],
-                score=logprobs[0, k])
+                score=logprobs[0, k],
+                attention=[attention])
             partial_sequences.push(cap)
 
         # Run beam search.
@@ -164,7 +176,8 @@ class SequenceGenerator(object):
             state_feed = [c.state for c in partial_sequences_list]
             state_feed = self.merge_states(state_feed)
 
-            words, logprobs, new_states = get_topk(input_feed, state_feed)
+            words, logprobs, new_states, attentions = get_topk(
+                input_feed, state_feed)
             for i, partial_sequence in enumerate(partial_sequences_list):
                 state = self.select_state(new_states, i)
                 for k in range(self.beam_size):
@@ -172,13 +185,16 @@ class SequenceGenerator(object):
                     sentence = partial_sequence.sentence + [w]
                     logprob = partial_sequence.logprob + logprobs[i, k]
                     score = logprob
+                    if attentions is not None:
+                        attention = partial_sequence.attention + [attentions[i]]
                     if w == self.eos_id:
                         if self.length_normalization_factor > 0:
                             score /= len(sentence)**self.length_normalization_factor
-                        beam = Sequence(sentence, state, logprob, score)
+                        beam = Sequence(sentence, state,
+                                        logprob, score, attention)
                         complete_sequences.push(beam)
                     else:
-                        beam = Sequence(sentence, state, logprob, score)
+                        beam = Sequence(sentence, state, logprob, score, attention)
                         partial_sequences.push(beam)
             if partial_sequences.size() == 0:
                 # We have run out of partial candidates; happens when beam_size
@@ -194,7 +210,7 @@ class SequenceGenerator(object):
 
         caps = complete_sequences.extract(sort=True)
 
-        return [c.sentence for c in caps], [c.score for c in caps]
+        return [c.sentence for c in caps], [c.score for c in caps], [c.attention for c in caps]
 
     def merge_states(self, state_list):
         if isinstance(state_list[0], tuple):

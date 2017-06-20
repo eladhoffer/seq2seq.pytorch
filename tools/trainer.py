@@ -12,6 +12,8 @@ import shutil
 import math
 from .utils import *
 
+__all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer', 'Img2SeqTrainer']
+
 
 class Seq2SeqTrainer(object):
     """class for Trainer."""
@@ -25,7 +27,7 @@ class Seq2SeqTrainer(object):
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth.tar',
                  keep_checkpoints=5,
-                 gpus=None,
+                 devices=None,
                  cuda=True):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
@@ -43,12 +45,18 @@ class Seq2SeqTrainer(object):
         self.print_freq = print_freq
         self.batch_first = batch_first
         self.perplexity = None
-        self.gpus = gpus
-
+        self.devices = devices
 
     def iterate(self, src, target, training=True):
         src, src_length = src
         target, target_length = target
+        if isinstance(self.devices, tuple):
+            model = DataParallel(self.model, self.devices,
+                                 dim=0 if self.batch_first else 1)
+        else:
+            model = lambda *x: self.model(*x,
+                                          devices=self.devices)
+
         if self.cuda:
             src = src.cuda()
             target = target.cuda()
@@ -58,10 +66,10 @@ class Seq2SeqTrainer(object):
         # compute output
 
         if self.batch_first:
-            output = self.model(src_var, target_var[:, :-1], device_ids=self.gpus)
+            output = model(src_var, target_var[:, :-1])
             target_labels = target_var[:, 1:]
         else:
-            output = self.model(src_var, target_var[:-1], device_ids=self.gpus)
+            output = model(src_var, target_var[:-1])
             target_labels = target_var[1:]
 
         T, B = output.size(0), output.size(1)
@@ -75,7 +83,7 @@ class Seq2SeqTrainer(object):
             # compute gradient and do SGD step
             self.optimizer.zero_grad()
             loss.backward()
-            if self.grad_clip is not None:
+            if self.grad_clip is not None and self.grad_clip > 0:
                 clip_grad_norm(self.model.parameters(), self.grad_clip)
             self.optimizer.step()
         return loss.data[0], num_words

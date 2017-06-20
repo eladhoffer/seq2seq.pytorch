@@ -12,31 +12,31 @@ class Seq2Seq(nn.Module):
             self.bridge = bridge
         self.batch_first = batch_first
 
-    def encode(self, inputs, hidden=None, device_ids=None, output_device=None):
-        if device_ids is None:
-            return self.encoder(inputs, hidden)
-        else:
+    def encode(self, inputs, hidden=None, devices=None):
+        if isinstance(devices, tuple):
             return data_parallel(self.encoder, (inputs, hidden),
-                                 device_ids=device_ids,
-                                 output_device=output_device,
+                                 device_ids=devices,
                                  dim=0 if self.batch_first else 1)
-
-    def decode(self, inputs, context, device_ids=None, output_device=None):
-        if device_ids is None:
-            return self.decoder(inputs, context)
         else:
-            return data_parallel(self.decoder, (inputs, context),
-                                 device_ids=device_ids,
-                                 output_device=output_device,
-                                 dim=0 if self.batch_first else 1)
+            return self.encoder(inputs, hidden)
 
-    def forward(self, input_encoder, input_decoder, encoder_hidden=None, device_ids=None, output_device=None):
+    def decode(self, inputs, context, devices=None):
+        if isinstance(devices, tuple):
+            return data_parallel(self.encoder, (inputs, context),
+                                 device_ids=devices,
+                                 dim=0 if self.batch_first else 1)
+        else:
+            return self.decoder(inputs, context)
+
+    def forward(self, input_encoder, input_decoder, encoder_hidden=None, devices=None):
+        if not isinstance(devices, dict):
+            devices = {'encoder': devices, 'decoder': devices}
         context = self.encode(input_encoder, encoder_hidden,
-                              device_ids=device_ids, output_device=output_device)
+                              devices=devices.get('encoder', None))
         if hasattr(self, 'bridge'):
             context = self.bridge(context)
         output, hidden = self.decode(
-            input_decoder, context, device_ids=device_ids, output_device=output_device)
+            input_decoder, context, devices=devices.get('decoder', None))
         return output
 
     def generate(self, inputs, context):

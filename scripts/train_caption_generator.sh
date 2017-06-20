@@ -1,18 +1,15 @@
-DATASET='WMT16_de_en'
-DATASET_DIR='./datasets/data/wmt16_de_en'
+DATASET='CocoCaptions'
+DATASET_DIR='/media/ssd/Datasets/COCO'
 
 python main.py \
-  --save gnmt_wmt16 \
+  --save captions \
   --dataset ${DATASET} \
   --dataset_dir ${DATASET_DIR} \
-  --model GNMT \
-  --model_config "{'num_layers': 8, 'hidden_size': 256}" \
-  --devices "{'input': 0, 'encoder': 1, 'decoder': 2}" \
+  --model ResNetCaptionGenerator \
+  --model_config "{'num_layers': 2, 'hidden_size': 256, 'dropout': 0.2}" \
   --data_config "{'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
-  --trainer Seq2SeqTrainer \
+  --b 32 \
+  --trainer Img2SeqTrainer \
   --optimization_config "{0: {'optimizer': 'Adam', 'lr': 1e-3},
                           1: {'optimizer': 'Adam', 'lr': 1e-4},
                           2: {'optimizer': 'SGD', 'lr': 1e-4}}" \
-
-
-#

@@ -28,15 +28,17 @@ class GlobalAttention(nn.Module):
 
     """
 
-    def __init__(self, dim):
+    def __init__(self, dim, context_dim=None, bias=False, batch_first=False):
         super(GlobalAttention, self).__init__()
-        self.linear_in = nn.Linear(dim, dim, bias=False)
+        context_dim = context_dim or dim
+        self.linear_in = nn.Linear(dim, context_dim, bias=bias)
         self.sm = nn.Softmax()
-        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
+        self.linear_out = nn.Linear(dim + context_dim, dim, bias=bias)
         self.tanh = nn.Tanh()
+        self.batch_first = batch_first
         self.mask = None
 
-    def applyMask(self, mask):
+    def set_mask(self, mask):
         self.mask = mask
 
     def forward(self, inputs, context):
@@ -44,7 +46,8 @@ class GlobalAttention(nn.Module):
         inputs: batch x dim
         context: sourceL x batch x dim
         """
-        context = context.transpose(0, 1)
+        if not self.batch_first:
+            context = context.transpose(0, 1)
         targetT = self.linear_in(inputs).unsqueeze(2)  # batch x dim x 1
 
         # Get attention
@@ -54,7 +57,7 @@ class GlobalAttention(nn.Module):
         attn = self.sm(attn)
         attn3 = attn.view(attn.size(0), 1, attn.size(1))  # batch x 1 x sourceL
 
-        weightedContext = torch.bmm(attn3, context).squeeze(1)  # batch x dim
+        weightedContext = torch.bmm(attn3, context).squeeze(1)  # batch x context_dim
         contextCombined = torch.cat((weightedContext, inputs), 1)
 
         contextOutput = self.tanh(self.linear_out(contextCombined))
@@ -72,6 +75,11 @@ class SDPAttention(nn.Module):
         self.causal = causal
         self.dropout = nn.Dropout(dropout)
         self.softmax = nn.Softmax()
+        self.mask = None
+
+    def set_mask(self, masked_tq):
+        # applies a mask of b x tq length
+        self.mask = masked_tq
 
     def forward(self, q, k, v):
         b_q, t_q, dim_q = list(q.size())
@@ -83,10 +91,13 @@ class SDPAttention(nn.Module):
         b = b_q
         qk = torch.bmm(q, k.transpose(1, 2))  # b x t_q x t_k
         qk = qk / (dim_k ** 0.5)
-        if self.causal:
-            mask = q.data.new(t_q, t_k).byte().fill_(1).triu_(1)
-            mask = mask.unsqueeze(0).expand(b, t_q, t_k)
+        if self.mask is not None:
+            mask = self.mask.unsqueeze(1).expand(b, t_q, t_k)
             qk.data.masked_fill_(mask, -float('inf'))
+        if self.causal:
+            causal_mask = q.data.new(t_q, t_k).byte().fill_(1).triu_(1)
+            causal_mask = causal_mask.unsqueeze(0).expand(b, t_q, t_k)
+            qk.data.masked_fill_(causal_mask, -float('inf'))
         sm_qk = self.softmax(qk.view(-1, t_k)).view(b, t_q, t_k)
         sm_qk = self.dropout(sm_qk)
         return torch.bmm(sm_qk, v)  # b x t_q x dim_v
@@ -108,6 +119,10 @@ class MultiHeadAttention(nn.Module):
         self.linear_v = nn.Linear(input_size, input_size)
         self.linear_out = nn.Linear(input_size, output_size)
         self.sdp_attention = SDPAttention(dropout=dropout, causal=causal)
+
+    def set_mask(self, masked_tq):
+        # applies a mask of b x tq length
+        self.sdp_attention.mask = masked_tq
 
     def forward(self, q, k, v):
 

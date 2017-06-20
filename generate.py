@@ -3,7 +3,7 @@
 import torch
 from torch.autograd import Variable
 from tools.config import EOS, BOS
-from tools.translator import Translator
+from tools.inference import Translator
 import math
 from tools.quantize import quantize_model, dequantize_model
 

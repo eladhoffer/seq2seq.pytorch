@@ -38,10 +38,9 @@ class GatedConv1d(MaskedConv1d):
 
 class LayerNorm1d(nn.Module):
 
-    def __init__(self, num_features, eps=1e-05, affine=True, bias_init=0):
+    def __init__(self, num_features, eps=1e-6, affine=True):
         super(LayerNorm1d, self).__init__()
         self.eps = eps
-        self.bias_init = bias_init
         self.num_features = num_features
         self.affine = affine
         if self.affine:
@@ -55,14 +54,14 @@ class LayerNorm1d(nn.Module):
     def reset_parameters(self):
         if self.affine:
             self.weight.data.fill_(1.)
-            self.bias.data.fill_(self.bias_init)
+            self.bias.data.fill_(0.)
 
     def forward(self, inputs):
         b, t, _ = list(inputs.size())
         mean = inputs.mean(2).view(b, t, 1).expand_as(inputs)
         input_centered = inputs - mean
-        std = (input_centered ** 2).mean(2).sqrt().view(b, t, 1).expand_as(inputs)
-        output = input_centered / (std + self.eps)
+        std = input_centered.pow(2).mean(2).add(self.eps).sqrt()
+        output = input_centered / std.view(b, t, 1).expand_as(inputs)
 
         if self.affine:
             w = self.weight.view(1, 1, -1).expand_as(output)
