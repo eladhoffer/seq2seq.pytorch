@@ -1,3 +1,6 @@
 [submodule "tools/subword-nmt"]
 	path = tools/subword-nmt
 	url = https://github.com/rsennrich/subword-nmt
+[submodule "seq2seq/tools/subword-nmt"]
+	path = seq2seq/tools/subword-nmt
+	url = https://github.com/rsennrich/subword-nmt
