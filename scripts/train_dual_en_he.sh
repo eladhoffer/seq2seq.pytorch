@@ -2,7 +2,7 @@ DATASET='OpenSubtitles2016'
 DATASET_DIR='./datasets/data/OpenSubtitles2016'
 
 python main.py \
-  --save en_he \
+  --save en_he_dual \
   --dataset ${DATASET} \
   --dataset_dir ${DATASET_DIR} \
   --model RecurrentAttentionSeq2Seq \
