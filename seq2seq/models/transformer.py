@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from .modules import LayerNorm1d
 from .attention import MultiHeadAttention
 from .seq2seq import Seq2Seq
+from seq2seq.tools.config import PAD
 
 
 def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4):
@@ -22,7 +23,8 @@ def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4):
         inv_timescales = inv_timescales.cuda()
 
     inv_timescales.mul_(-log_timescale_increment).exp_().mul_(min_timescale)
-    scaled_time = position.unsqueeze(1) * inv_timescales.unsqueeze(0)
+    scaled_time = position.unsqueeze(1).expand(
+        length, num_timescales) * inv_timescales.unsqueeze(0).expand(length, num_timescales)
     # scaled time is now length x num_timescales
     # length x channels
     signal = torch.cat([scaled_time.sin(), scaled_time.cos()], 1)
@@ -106,7 +108,8 @@ class TransformerAttentionEncoder(nn.Module):
 
         super(TransformerAttentionEncoder, self).__init__()
         self.mask_symbol = mask_symbol
-        self.embedder = nn.Embedding(vocab_size, hidden_size, padding_idx=0)
+        self.embedder = nn.Embedding(vocab_size, hidden_size, padding_idx=PAD)
+        self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout)
         self.blocks = nn.ModuleList([EncoderBlock(hidden_size, num_heads, inner_linear, dropout)
                                      for _ in range(num_layers)
@@ -117,7 +120,7 @@ class TransformerAttentionEncoder(nn.Module):
             padding_mask = inputs.eq(self.mask_symbol)
         else:
             padding_mask = None
-        x = self.embedder(inputs)
+        x = self.embedder(inputs) * self.scale_embedding
         x = x + Variable(positional_embedding(x), requires_grad=False)
         x = self.dropout(x)
 
@@ -133,7 +136,8 @@ class TransformerAttentionDecoder(nn.Module):
     def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, inner_linear=1024, tie_embedding=True):
 
         super(TransformerAttentionDecoder, self).__init__()
-        self.embedder = nn.Embedding(vocab_size, hidden_size, padding_idx=0)
+        self.embedder = nn.Embedding(vocab_size, hidden_size, padding_idx=PAD)
+        self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout)
         self.blocks = nn.ModuleList([DecoderBlock(hidden_size, num_heads, inner_linear, dropout)
                                      for _ in range(num_layers)
@@ -143,7 +147,7 @@ class TransformerAttentionDecoder(nn.Module):
             self.embedder.weight = self.classifier.weight
 
     def forward(self, inputs, context):
-        x = self.embedder(inputs)
+        x = self.embedder(inputs) * self.scale_embedding
         x = x + Variable(positional_embedding(x), requires_grad=False)
         x = self.dropout(x)
 

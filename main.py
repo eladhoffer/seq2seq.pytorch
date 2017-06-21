@@ -96,12 +96,10 @@ def main(args):
         torch.cuda.set_device(main_gpu)
         cudnn.benchmark = True
 
-    data_config = dict(root=args.dataset_dir)
-    if data_config is not '':
-        data_config = dict(data_config, **literal_eval(args.data_config))
     dataset = getattr(datasets, args.dataset)
-    train_data = dataset(split='train', **data_config)
-    val_data = dataset(split='dev', **data_config)
+    data_config = literal_eval(args.data_config)
+    train_data = dataset(args.dataset_dir, split='train', **data_config)
+    val_data = dataset(args.dataset_dir, split='dev', **data_config)
     _, target_tok = train_data.tokenizers.values()
 
     regime = literal_eval(args.optimization_config)
