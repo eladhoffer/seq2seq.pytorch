@@ -9,11 +9,6 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
 from seq2seq.tools.config import *
 
-__tokenizers = {
-    'word': Tokenizer,
-    'char': CharTokenizer,
-    'bpe': BPETokenizer
-}
 
 
 def create_padded_batch(max_length=100, batch_first=False, sort=False, pack=False):
@@ -39,6 +34,11 @@ def create_padded_batch(max_length=100, batch_first=False, sort=False, pack=Fals
 
 class MultiLanguageDataset(object):
     """docstring for Dataset."""
+    __tokenizers = {
+        'word': Tokenizer,
+        'char': CharTokenizer,
+        'bpe': BPETokenizer
+    }
 
     def __init__(self, prefix,
                  languages,
@@ -110,7 +110,7 @@ class MultiLanguageDataset(object):
                 if not hasattr(tokz, 'bpe'):
                     tokz.learn_bpe(files)
             else:
-                tokz = __tokenizers[self.tokenization](
+                tokz = self.__tokenizers[self.tokenization](
                     vocab_file=self.vocab_files[l],
                     additional_tokens=additional_tokens)
 

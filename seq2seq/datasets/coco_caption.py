@@ -12,12 +12,6 @@ from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
 from seq2seq.tools.config import EOS, BOS, PAD, LANGUAGE_TOKENS
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-__tokenizers = {
-    'word': Tokenizer,
-    'char': CharTokenizer,
-    'bpe': BPETokenizer
-}
-
 
 def imagenet_transform(scale_size=256, input_size=224, train=True, allow_var_size=False):
     normalize = {'mean': [0.485, 0.456, 0.406],
@@ -74,6 +68,11 @@ def create_padded_caption_batch(max_length=100, batch_first=False, sort=False, p
 
 class CocoCaptions(object):
     """docstring for Dataset."""
+    __tokenizers = {
+        'word': Tokenizer,
+        'char': CharTokenizer,
+        'bpe': BPETokenizer
+    }
 
     def __init__(self, root, img_transform=imagenet_transform,
                  split='train',
@@ -112,7 +111,7 @@ class CocoCaptions(object):
                 self.sample_caption = lambda l: 0
 
         self.data = dset.CocoCaptions(root=path['root'], annFile=path[
-                                      'annFile'], transform=img_transform(train= (split=='train')))
+                                      'annFile'], transform=img_transform(train=(split == 'train')))
 
         if self.tokenizer is None:
             prefix = os.path.join(root, 'coco')
@@ -135,20 +134,22 @@ class CocoCaptions(object):
         if self.mark_language:
             additional_tokens = [LANGUAGE_TOKENS['en']]
 
-        sentences = (d['caption'] for d in self.data.coco.anns.values())
         if self.tokenization == 'bpe':
             tokz = BPETokenizer(self.code_file,
                                 vocab_file=self.vocab_file,
                                 num_symbols=self.num_symbols,
                                 additional_tokens=additional_tokens)
             if not hasattr(tokz, 'bpe'):
+                sentences = (d['caption']
+                             for d in self.data.coco.anns.values())
                 tokz.learn_bpe(sentences, from_filenames=False)
         else:
-            tokz = __tokenizer[self.tokenization](
+            tokz = self.__tokenizers[self.tokenization](
                 vocab_file=self.vocab_file,
                 additional_tokens=additional_tokens)
 
         if not hasattr(tokz, 'vocab'):
+            sentences = (d['caption'] for d in self.data.coco.anns.values())
             logging.info('generating vocabulary. saving to %s' %
                          self.vocab_file)
             tokz.get_vocab(sentences, from_filenames=False)
@@ -159,10 +160,17 @@ class CocoCaptions(object):
         if isinstance(index, slice):
             return [self[idx] for idx in range(index.start or 0, index.stop or len(self), index.step or 1)]
         img, captions = self.data[index]
+        insert_start = self.insert_start
+        insert_end = self.insert_end
+
+        def transform(t):
+            return self.tokenizer.tokenize(t,
+                                           insert_start=insert_start,
+                                           insert_end=insert_end)
         if self.sample_caption is None:
-            captions = [self.tokenizer.tokenize(c) for c in captions]
+            captions = [transform(c) for c in captions]
         else:
-            captions = self.tokenizer.tokenize(
+            captions = transform(
                 captions[self.sample_caption(len(captions))])
         return (img, captions)
 
@@ -181,7 +189,6 @@ class CocoCaptions(object):
                                            num_workers=num_workers,
                                            pin_memory=pin_memory,
                                            drop_last=drop_last)
-
 
     @property
     def tokenizers(self):

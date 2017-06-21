@@ -114,7 +114,8 @@ class CaptionGenerator(Translator):
     def set_src_language(self, language):
         pass
 
-    def describe(self, input_img, target_priming=''):
+    def describe(self, input_img, target_priming=None):
+        target_priming = target_priming or ''
         src_img = self.img_transform(input_img)
 
         bos = self.target_tok.tokenize(
@@ -134,15 +135,21 @@ class CaptionGenerator(Translator):
 
         preds, logprobs, attentions = self.generator.beam_search(bos, context)
         num_return = len(preds) if self.return_all else 1
-        output = [self.target_tok.detokenize(
-            preds[i][:-1]) for i in range(num_return)]
-        output = [' '.join([target_priming, o]) for o in output]
-        if len(output) == 1:
-            output = output[0]
-
+        preds = preds[:num_return]
+        logprobs = logprobs[:num_return]
+        output = [self.target_tok.detokenize(p[:-1]) for p in preds]
+        if len(target_priming) > 0:
+            output = [' '.join([target_priming, o]) for o in output]
+        output = output[0] if len(output) == 1 else output
+        logprobs = logprobs[0] if len(logprobs) == 1 else logprobs
         if attentions is not None:
-            attentions = [[a.view(h, w) for a in a_list]
-                          for a_list in attentions]
-        return output, attentions
+            attentions = attentions[:num_return]
+            attentions = [torch.stack([a.view(h, w) for a in attns], 0)
+                          for attns in attentions]
+            attentions = attentions[0] if len(attentions) == 1 else attentions
+            preds = [[self.target_tok.idx2word(
+                idx) for idx in p] for p in preds]
+            preds = preds[0] if len(preds) == 1 else preds
+        return output, (attentions, preds)
         # for s,p in zip(sentences,logprob):
         #     print(target_tok.detokenize(s)[::-1],' p=%s' % math.exp(p))
