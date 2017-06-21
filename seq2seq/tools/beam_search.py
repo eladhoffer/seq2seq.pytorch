@@ -138,7 +138,8 @@ class SequenceGenerator(object):
             if self.get_attention:
                 logits, new_states, attention = self.model(
                     inputs, states, get_attention=True)
-                attention = attention.data.select(time_dim, -1)
+
+                attention = attention.select(time_dim, -1).data
             else:
                 attention = None
                 logits, new_states = self.model(inputs, states)
@@ -160,7 +161,7 @@ class SequenceGenerator(object):
                 state=new_state,
                 logprob=logprobs[0, k],
                 score=logprobs[0, k],
-                attention=[attention])
+                attention=[attention[0]])
             partial_sequences.push(cap)
 
         # Run beam search.
@@ -186,7 +187,8 @@ class SequenceGenerator(object):
                     logprob = partial_sequence.logprob + logprobs[i, k]
                     score = logprob
                     if attentions is not None:
-                        attention = partial_sequence.attention + [attentions[i]]
+                        attention = partial_sequence.attention + \
+                            [attentions[i]]
                     if w == self.eos_id:
                         if self.length_normalization_factor > 0:
                             score /= len(sentence)**self.length_normalization_factor
@@ -194,7 +196,8 @@ class SequenceGenerator(object):
                                         logprob, score, attention)
                         complete_sequences.push(beam)
                     else:
-                        beam = Sequence(sentence, state, logprob, score, attention)
+                        beam = Sequence(sentence, state,
+                                        logprob, score, attention)
                         partial_sequences.push(beam)
             if partial_sequences.size() == 0:
                 # We have run out of partial candidates; happens when beam_size

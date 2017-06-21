@@ -9,11 +9,11 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
-import models
-import datasets
-from tools.utils import setup_logging, ResultsLog
-import tools.trainer as trainers
-from tools.config import PAD
+from seq2seq import models, datasets
+from seq2seq.tools.utils import setup_logging, ResultsLog
+from seq2seq.tools.config import PAD
+import seq2seq.tools.trainer as trainers
+
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
 parser.add_argument('--dataset', metavar='DATASET', default='WMT16_de_en',
@@ -69,7 +69,6 @@ parser.add_argument('--grad_clip', default=5., type=float,
 
 
 def main(args):
-
     if args.evaluate:
         args.results_dir = '/tmp'
     if args.save is '':

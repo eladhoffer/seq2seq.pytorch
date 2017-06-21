@@ -1,18 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 import logging
-import sys
-import os
 from copy import copy, deepcopy
 import torch
 from collections import OrderedDict
 from .text import LinedTextDataset
 from torch.nn.utils.rnn import pack_padded_sequence
-
-sys.path.append(os.path.abspath(os.path.join(
-    os.path.dirname(__file__), '..', '..')))
-from tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
-from tools.config import *
+from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
+from seq2seq.tools.config import *
 
 __tokenizers = {
     'word': Tokenizer,

@@ -1,20 +1,15 @@
 import os
-import sys
 import logging
+from random import randrange
+from collections import OrderedDict
 import torch
+from torch.nn.utils.rnn import pack_padded_sequence
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
-import string
-from collections import OrderedDict
-from .text import LinedTextDataset
-from random import randrange
 from PIL import ImageFile
-from torch.nn.utils.rnn import pack_padded_sequence
 
-sys.path.append(os.path.abspath(os.path.join(
-    os.path.dirname(__file__), '..', '..')))
-from tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
-from tools.config import *
+from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
+from seq2seq.tools.config import EOS, BOS, PAD, LANGUAGE_TOKENS
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 __tokenizers = {

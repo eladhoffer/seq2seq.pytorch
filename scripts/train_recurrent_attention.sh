@@ -1,10 +1,12 @@
-DATASET='WMT16_de_en'
-DATASET_DIR='./datasets/data/wmt16_de_en'
+DATASET=${1:-"WMT16_de_en"}
+DATASET_DIR=${2:-"./datasets/data/wmt16_de_en"}
+OUTPUT_DIR=${3:-"./results"}
 
 python main.py \
-  --save recurrent_attention_wmt16 \
+  --save recurrent_attention \
   --dataset ${DATASET} \
   --dataset_dir ${DATASET_DIR} \
+  --results_dir ${OUTPUT_DIR} \
   --model RecurrentAttentionSeq2Seq \
   --model_config "{'num_layers': 2, 'hidden_size': 256, 'dropout': 0.2}" \
   --data_config "{'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \

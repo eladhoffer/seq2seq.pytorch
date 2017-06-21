@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(
-    os.path.dirname(__file__), '..', '..')))
-from tools.config import *
+from seq2seq.tools.config import *
 from copy import deepcopy
 from .multi_language import MultiLanguageDataset
 

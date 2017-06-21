@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 import torch
 from torch.autograd import Variable
-from tools.config import EOS, BOS, LANGUAGE_TOKENS
-from tools.beam_search import SequenceGenerator
+from .config import EOS, BOS, LANGUAGE_TOKENS
+from .beam_search import SequenceGenerator
 from torch.nn.functional import adaptive_avg_pool2d
 
 
@@ -25,6 +25,7 @@ class Translator(object):
         self.insert_src_end = [EOS]
         self.batch_first = batch_first
         self.return_all = return_all
+        self.get_attention = get_attention
         self.cuda = cuda
         if self.cuda:
             model.cuda()
@@ -47,14 +48,15 @@ class Translator(object):
         lang = self.target_tok.special_tokens.index(LANGUAGE_TOKENS[language])
         self.insert_target_start = [BOS, lang]
 
-    def translate(self, input_sentence, target_priming=''):
-        src = self.src_tok.tokenize(input_sentence,
-                                    insert_start=self.insert_src_start,
-                                    insert_end=self.insert_src_end)
+    def translate(self, input_sentence, target_priming=None):
+        target_priming = target_priming or ''
+        src_tok = self.src_tok.tokenize(input_sentence,
+                                        insert_start=self.insert_src_start,
+                                        insert_end=self.insert_src_end)
         bos = self.target_tok.tokenize(
             target_priming, insert_start=self.insert_target_start)
         shape = (1, -1) if self.batch_first else (-1, 1)
-        src = Variable(src.view(*shape), volatile=True)
+        src = Variable(src_tok.view(*shape), volatile=True)
         bos = Variable(bos.view(*shape), volatile=True)
         if self.cuda:
             src = src.cuda()
@@ -66,12 +68,25 @@ class Translator(object):
             context = self.model.bridge(context)
         preds, logprobs, attentions = self.generator.beam_search(bos, context)
         num_return = len(preds) if self.return_all else 1
-        output = [self.target_tok.detokenize(
-            preds[i][:-1]) for i in range(num_return)]
-        output = [' '.join([target_priming, o]) for o in output]
-        if len(output) == 1:
-            output = output[0]
-        return output
+        preds = preds[:num_return]
+        logprobs = logprobs[:num_return]
+        output = [self.target_tok.detokenize(p[:-1]) for p in preds]
+        if len(target_priming) > 0:
+            output = [' '.join([target_priming, o]) for o in output]
+
+        output = output[0] if len(output) == 1 else output
+        logprobs = logprobs[0] if len(logprobs) == 1 else logprobs
+        if self.get_attention:
+            attentions = attentions[:num_return]
+            attentions = [torch.stack(att, 1) for att in attentions]
+            attentions = attentions[0] if len(attentions) == 1 else attentions
+            preds = [[self.target_tok.idx2word(
+                idx) for idx in p] for p in preds]
+            preds = preds[0] if len(preds) == 1 else preds
+            src = [self.src_tok.idx2word(idx) for idx in list(src_tok)]
+            return output, (attentions, src, preds)
+        else:
+            return output
 
 
 class CaptionGenerator(Translator):
@@ -126,7 +141,8 @@ class CaptionGenerator(Translator):
             output = output[0]
 
         if attentions is not None:
-            attentions = [[a.view(h,w) for a in a_list] for a_list in attentions]
+            attentions = [[a.view(h, w) for a in a_list]
+                          for a_list in attentions]
         return output, attentions
         # for s,p in zip(sentences,logprob):
         #     print(target_tok.detokenize(s)[::-1],' p=%s' % math.exp(p))

@@ -225,6 +225,9 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
         if tie_embedding:
             self.encoder.embedder.weight = self.decoder.embedder.weight
 
+    def generate(self, inputs, context, get_attention=False):
+        return self.decoder(inputs, context, get_attention=get_attention)
+
     def bridge(self, context):
         context, hidden = context
         new_hidden = []
