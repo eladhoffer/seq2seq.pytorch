@@ -37,6 +37,7 @@ The models can be trained using several methods:
 
 * Basic Seq2Seq - given encoded sequence, generate (decode) output sequence. Training is done with teacher-forcing.
 * Multi Seq2Seq - where several tasks (such as multiple languages) are trained simultaneously by using the data sequences as both input to the encoder and output for decoder.
+* Image2Seq - used to train image to caption generators.
 
 ## Usage
 Example training scripts are available in ``scripts`` folder. Inference examples are available in ``examples`` folder.
