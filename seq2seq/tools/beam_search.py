@@ -161,7 +161,7 @@ class SequenceGenerator(object):
                 state=new_state,
                 logprob=logprobs[0, k],
                 score=logprobs[0, k],
-                attention=[attention[0]])
+                attention=None if attention is None else [attention[0]])
             partial_sequences.push(cap)
 
         # Run beam search.

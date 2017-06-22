@@ -161,7 +161,7 @@ class TransformerAttentionDecoder(nn.Module):
 
 class Transformer(Seq2Seq):
 
-    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, inner_linear=2048, dropout=0.3, tie_embedding=True):
+    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, inner_linear=2048, dropout=0.1, tie_embedding=True):
         super(Transformer, self).__init__(batch_first=True)
         self.encoder = TransformerAttentionEncoder(vocab_size, hidden_size=hidden_size,
                                                    num_layers=num_layers, num_heads=num_heads, inner_linear=inner_linear,
@@ -171,23 +171,15 @@ class Transformer(Seq2Seq):
                                                    dropout=dropout, tie_embedding=tie_embedding)
 
         if tie_embedding:
-            self.encoder.embedder.weight = self.decoder.embedder.weight
+            self.encoder.embedder.weight = self.decoder.classifier.weight
 
     def generate(self, inputs, context):
         # TODO cache computation, not inputs
-        cached_inputs = inputs
         if hasattr(self, 'cache') and self.cache is not None:
             self.cache = self.cache.expand(inputs.size(0), self.cache.size(1))
-            cached_inputs = torch.cat([self.cache, inputs], 1)
+            inputs = torch.cat([self.cache, inputs], 1)
         self.cache = inputs.clone()
-        output, _ = self.decode(cached_inputs, context)
-        return output, context
+        return self.decode(self.cache, context)
 
     def clear_state(self):
         self.cache = None
-
-# # test:
-# model = Transformer(1000, 128, 3)
-# x1 = torch.autograd.Variable(torch.rand(32, 16).long().fill_(2))
-# x2 = torch.autograd.Variable(torch.rand(32, 16).long().fill_(2))
-# y = model(x1, x2)
