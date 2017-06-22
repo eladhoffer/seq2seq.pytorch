@@ -39,4 +39,4 @@ The models can be trained using several methods:
 * Multi Seq2Seq - where several tasks (such as multiple languages) are trained simultaneously by using the data sequences as both input to the encoder and output for decoder.
 
 ## Usage
-Example scripts are available to train in ``examples`` folder.
+Example training scripts are available in ``scripts`` folder. Inference examples are available in ``examples`` folder.
