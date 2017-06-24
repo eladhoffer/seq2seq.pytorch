@@ -22,7 +22,7 @@ class Seq2Seq(nn.Module):
 
     def decode(self, inputs, context, devices=None):
         if isinstance(devices, tuple):
-            return data_parallel(self.encoder, (inputs, context),
+            return data_parallel(self.decoder, (inputs, context),
                                  device_ids=devices,
                                  dim=0 if self.batch_first else 1)
         else:
