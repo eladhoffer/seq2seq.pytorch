@@ -95,7 +95,7 @@ class MultiLanguageDataset(object):
         self.tokenizers = OrderedDict()
         additional_tokens = None
         if self.mark_language:
-            additional_tokens = [LANGUAGE_TOKENS[l] for l in self.languages]
+            additional_tokens = [LANGUAGE_TOKENS(l) for l in self.languages]
         for l in self.languages:
             if self.shared_vocab:
                 files = [self.input_files[t] for t in self.languages]
@@ -127,7 +127,7 @@ class MultiLanguageDataset(object):
             insert_start = deepcopy(self.insert_start)
             if self.mark_language:
                 lang_idx = self.tokenizers[l]\
-                    .special_tokens.index(LANGUAGE_TOKENS[l])
+                    .special_tokens.index(LANGUAGE_TOKENS(l))
                 insert_start.append(lang_idx)
             insert_end = self.insert_end
 

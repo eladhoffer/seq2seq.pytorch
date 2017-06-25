@@ -41,11 +41,11 @@ class Translator(object):
             length_normalization_factor=length_normalization_factor)
 
     def set_src_language(self, language):
-        lang = self.src_tok.special_tokens.index(LANGUAGE_TOKENS[language])
+        lang = self.src_tok.special_tokens.index(LANGUAGE_TOKENS(language))
         self.insert_src_start = [BOS, lang]
 
     def set_target_language(self, language):
-        lang = self.target_tok.special_tokens.index(LANGUAGE_TOKENS[language])
+        lang = self.target_tok.special_tokens.index(LANGUAGE_TOKENS(language))
         self.insert_target_start = [BOS, lang]
 
     def translate(self, input_sentence, target_priming=None):

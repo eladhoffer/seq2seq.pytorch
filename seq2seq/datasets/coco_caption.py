@@ -132,7 +132,7 @@ class CocoCaptions(object):
     def generate_tokenizer(self):
         additional_tokens = None
         if self.mark_language:
-            additional_tokens = [LANGUAGE_TOKENS['en']]
+            additional_tokens = [LANGUAGE_TOKENS('en')]
 
         if self.tokenization == 'bpe':
             tokz = BPETokenizer(self.code_file,
