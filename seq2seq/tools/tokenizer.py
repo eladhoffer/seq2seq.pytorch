@@ -150,7 +150,7 @@ class BPETokenizer(Tokenizer):
     def detokenize(self, inputs, delimiter=' '):
         detok_string = super(BPETokenizer, self).detokenize(inputs, delimiter)
         detok_string = detok_string.decode(
-            'utf-8').replace(self.seperator + ' ', '')
+            'utf-8').replace(self.seperator + ' ', '').replace(self.seperator, '')
         # detok_string = detok_string.encode('utf-8').strip()
         return detok_string
 

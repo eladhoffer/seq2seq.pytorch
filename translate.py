@@ -3,9 +3,11 @@
 import argparse
 import os
 import codecs
+from ast import literal_eval
 import torch
 import torch.backends.cudnn as cudnn
 from seq2seq.tools.inference import Translator
+
 parser = argparse.ArgumentParser(
     description='Translate a file using pretrained model')
 
@@ -15,8 +17,10 @@ parser.add_argument('-m', '--model',
                     help='model checkpoint file')
 parser.add_argument('--beam_size', default=12, type=int,
                     help='beam size used')
-parser.add_argument('--max_sequence_length', default=100, type=int,
+parser.add_argument('--max_sequence_length', default=50, type=int,
                     help='maximum prediciton length')
+parser.add_argument('--batch_size', default=16, type=int,
+                    help='batch size used for inference')
 parser.add_argument('--length_normalization', default=0.6, type=float,
                     help='length normalization factor')
 parser.add_argument('--devices', default='0',
@@ -26,6 +30,7 @@ parser.add_argument('--type', default='torch.cuda.FloatTensor',
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    args.devices = literal_eval(args.devices)
     if 'cuda' in args.type:
         cuda = True
         main_gpu = 0
@@ -46,15 +51,27 @@ if __name__ == '__main__':
                                    src_tok=src_tok,
                                    target_tok=target_tok,
                                    beam_size=args.beam_size,
-                                   batch_first=model.batch_first,
                                    max_sequence_length=args.max_sequence_length,
                                    length_normalization_factor=args.length_normalization,
                                    cuda=cuda)
 
     output_file = codecs.open(args.output, 'w', encoding='UTF-8')
-    with codecs.open(args.input, encoding='UTF-8') as input_file:
-        for line in input_file:
-            translated = translation_model.translate(line)
-            output_file.write(translated)
+
+    def write_output(lines):
+        for l in lines:
+            output_file.write(l)
             output_file.write('\n')
+
+    with codecs.open(args.input, encoding='UTF-8') as input_file:
+        lines = []
+        for line in input_file:
+            if len(lines) < args.batch_size:
+                lines.append(line)
+                continue
+            else:
+                write_output(translation_model.translate(lines))
+                lines = [line]
+        if len(lines) > 0:
+            write_output(translation_model.translate(lines))
+
     output_file.close()

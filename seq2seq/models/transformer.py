@@ -173,13 +173,17 @@ class Transformer(Seq2Seq):
         if tie_embedding:
             self.encoder.embedder.weight = self.decoder.classifier.weight
 
-    def generate(self, inputs, context):
+    def generate(self, input_list, state_list, k=1, feed_all_timesteps=True, get_attention=False):
         # TODO cache computation, not inputs
-        if hasattr(self, 'cache') and self.cache is not None:
-            self.cache = self.cache.expand(inputs.size(0), self.cache.size(1))
-            inputs = torch.cat([self.cache, inputs], 1)
-        self.cache = inputs.clone()
-        return self.decode(self.cache, context)
+        return super(Transformer, self).generate(input_list, state_list, k=k,
+                                                 feed_all_timesteps=feed_all_timesteps,
+                                                 get_attention=get_attention)
+        # return self.decode(inputs, context)
+        # if hasattr(self, 'cache') and self.cache is not None:
+        #     self.cache = self.cache.expand(inputs.size(0), self.cache.size(1))
+        #     inputs = torch.cat([self.cache, inputs], 1)
+        # self.cache = inputs.clone()
+        # return self.decode(self.cache, context)
 
     def clear_state(self):
         self.cache = None

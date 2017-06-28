@@ -1,15 +1,18 @@
 import os
-import torch
 import logging.config
+import torch
+from torch.nn.utils.rnn import pack_padded_sequence
 import pandas as pd
 from bokeh.io import output_file, save, show
 from bokeh.plotting import figure
 from bokeh.layouts import column
 from bokeh.charts import Line, defaults
+from .config import PAD
 
 defaults.width = 800
 defaults.height = 400
 defaults.tools = 'pan,box_zoom,wheel_zoom,box_select,hover,resize,reset,save'
+
 
 def setup_logging(log_file='log.txt'):
     """Setup logging configuration
@@ -114,3 +117,27 @@ def adjust_optimizer(optimizer, epoch, config):
                 optimizer = modify_optimizer(optimizer, config[e])
 
     return optimizer
+
+
+def batch_padded_sequences(seqs, batch_first=False, sort=False, pack=False):
+    if len(seqs) == 1:
+        return seqs[0].view(1, -1) if batch_first else seqs[0].view(-1, 1)
+    if sort or pack:  # packing requires a sorted batch by length
+        seqs.sort(key=len, reverse=True)
+    lengths = [len(s) for s in seqs]
+    max_length = max(lengths)
+    if batch_first:
+        sz = (len(seqs), max_length)
+        time_dim, batch_dim = 1, 0
+    else:
+        sz = (max_length, len(seqs))
+        time_dim, batch_dim = 0, 1
+    seq_tensor = seqs[0].new(*sz).fill_(PAD)
+    for i, s in enumerate(seqs):
+        end_seq = lengths[i]
+        seq_tensor.narrow(time_dim, 0, end_seq).select(batch_dim, i)\
+            .copy_(s[:end_seq])
+    if pack:
+        return pack_padded_sequence(seq_tensor, lengths, batch_first=batch_first)
+    else:
+        return seq_tensor

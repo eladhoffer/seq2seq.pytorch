@@ -1,13 +1,10 @@
-"""Class for generating sequences from an image-to-text model.
+"""Class for generating sequences
 Adapted from https://github.com/tensorflow/models/blob/master/im2txt/im2txt/inference_utils/sequence_generator.py"""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import heapq
-import torch
-from torch.autograd import Variable
-from torch.nn.functional import log_softmax
 from .config import EOS
 
 
@@ -119,7 +116,6 @@ class SequenceGenerator(object):
         self.beam_size = beam_size
         self.max_sequence_length = max_sequence_length
         self.length_normalization_factor = length_normalization_factor
-        self.batch_first = batch_first
         self.get_attention = get_attention
 
     def beam_search(self, initial_input, initial_state=None):
@@ -131,110 +127,80 @@ class SequenceGenerator(object):
         Returns:
           A list of Sequence sorted by descending score.
         """
-        time_dim = 1 if self.batch_first else 0
-        view_shape = (-1, 1) if self.batch_first else (1, -1)
+        batch_size = len(initial_input)
+        partial_sequences = [TopN(self.beam_size) for _ in range(batch_size)]
+        complete_sequences = [TopN(self.beam_size) for _ in range(batch_size)]
 
-        def get_topk(inputs, states):
-            if self.get_attention:
-                logits, new_states, attention = self.model(
-                    inputs, states, get_attention=True)
-
-                attention = attention.select(time_dim, -1).data
-            else:
-                attention = None
-                logits, new_states = self.model(inputs, states)
-            # use only last prediction
-            logits = logits.select(time_dim, -1).contiguous()
-            logprobs = log_softmax(logits.view(-1, logits.size(-1)))
-            logprobs, words = logprobs.topk(self.beam_size, 1)
-            return words.data, logprobs.data, new_states, attention
-
-        partial_sequences = TopN(self.beam_size)
-        complete_sequences = TopN(self.beam_size)
-
-        words, logprobs, new_state, attention = get_topk(
-            initial_input, initial_state)
-
-        for k in range(self.beam_size):
-            cap = Sequence(
-                sentence=[words[0, k]],
-                state=new_state,
-                logprob=logprobs[0, k],
-                score=logprobs[0, k],
-                attention=None if attention is None else [attention[0]])
-            partial_sequences.push(cap)
+        words, logprobs, new_state, attention = self.model.generate(
+            initial_input, initial_state,
+            k=self.beam_size,
+            feed_all_timesteps=True,
+            get_attention=self.get_attention)
+        for b in range(batch_size):
+            for k in range(self.beam_size):
+                seq = Sequence(
+                    sentence=initial_input[b] + [words[b][k]],
+                    state=new_state[b],
+                    logprob=logprobs[b][k],
+                    score=logprobs[b][k],
+                    attention=None if attention is None else [attention[b]])
+                partial_sequences[b].push(seq)
 
         # Run beam search.
         for _ in range(self.max_sequence_length - 1):
-            partial_sequences_list = partial_sequences.extract()
-            partial_sequences.reset()
-            input_feed = torch.LongTensor([c.sentence[-1]
-                                           for c in partial_sequences_list])
-            input_feed = input_feed.view(*view_shape)
-            if initial_input.is_cuda:
-                input_feed = input_feed.cuda()
-            input_feed = Variable(input_feed, volatile=True)
-            state_feed = [c.state for c in partial_sequences_list]
-            state_feed = self.merge_states(state_feed)
+            partial_sequences_list = [p.extract() for p in partial_sequences]
+            for p in partial_sequences:
+                p.reset()
+            flattened_partial = [
+                s for sub_partial in partial_sequences_list for s in sub_partial]
+            input_feed = [c.sentence for c in flattened_partial]
+            state_feed = [c.state for c in flattened_partial]
 
-            words, logprobs, new_states, attentions = get_topk(
-                input_feed, state_feed)
-            for i, partial_sequence in enumerate(partial_sequences_list):
-                state = self.select_state(new_states, i)
-                for k in range(self.beam_size):
-                    w = words[i, k]
-                    sentence = partial_sequence.sentence + [w]
-                    logprob = partial_sequence.logprob + logprobs[i, k]
-                    score = logprob
+            words, logprobs, new_states, attentions \
+                = self.model.generate(
+                    input_feed, state_feed,
+                    k=self.beam_size, get_attention=self.get_attention)
+
+            idx = 0
+            for b in range(batch_size):
+                for partial in partial_sequences_list[b]:
+                    state = new_states[idx]
                     if attentions is not None:
-                        attention = partial_sequence.attention + \
-                            [attentions[i]]
-                    if w == self.eos_id:
-                        if self.length_normalization_factor > 0:
-                            score /= len(sentence)**self.length_normalization_factor
-                        beam = Sequence(sentence, state,
-                                        logprob, score, attention)
-                        complete_sequences.push(beam)
-                    else:
-                        beam = Sequence(sentence, state,
-                                        logprob, score, attention)
-                        partial_sequences.push(beam)
-            if partial_sequences.size() == 0:
-                # We have run out of partial candidates; happens when beam_size
-                # = 1.
-                break
+                        attention = partial.attention + [attentions[idx]]
+                    for k in range(self.beam_size):
+                        w = words[idx][k]
+                        sentence = partial.sentence + [w]
+                        logprob = partial.logprob + logprobs[idx][k]
+                        score = logprob
+
+                        if w == self.eos_id:
+                            if self.length_normalization_factor > 0:
+                                score /= len(sentence)**self.length_normalization_factor
+                            beam = Sequence(sentence, state,
+                                            logprob, score, attention)
+                            complete_sequences[b].push(beam)
+                        else:
+                            beam = Sequence(sentence, state,
+                                            logprob, score, attention)
+                            partial_sequences[b].push(beam)
+                    idx += 1
+                if partial_sequences[b].size() == 0:
+                    # We have run out of partial candidates; happens when beam_size
+                    # = 1.
+                    break
 
         # If we have no complete sequences then fall back to the partial sequences.
         # But never output a mixture of complete and partial sequences because a
         # partial sequence could have a higher score than all the complete
         # sequences.
-        if not complete_sequences.size():
-            complete_sequences = partial_sequences
+        for b in range(batch_size):
+            if not complete_sequences[b].size():
+                complete_sequences[b] = partial_sequences[b]
 
-        caps = complete_sequences.extract(sort=True)
-
-        return [c.sentence for c in caps], [c.score for c in caps], [c.attention for c in caps]
-
-    def merge_states(self, state_list):
-        if isinstance(state_list[0], tuple):
-            return tuple([self.merge_states(s) for s in zip(*state_list)])
-        else:
-            if state_list[0] is None:
-                return None
-            if state_list[0].dim() == 3 and not self.batch_first:
-                batch_dim = 1
-            else:
-                batch_dim = 0
-            return torch.cat(state_list, batch_dim)
-
-    def select_state(self, state, i):
-        if isinstance(state, tuple):
-            return tuple(self.select_state(s, i) for s in state)
-        else:
-            if state is None:
-                return None
-            if state.dim() == 3 and not self.batch_first:
-                batch_dim = 1
-            else:
-                batch_dim = 0
-            return state.narrow(batch_dim, i, 1)
+        seqs = [complete.extract(sort=True)[0]
+                for complete in complete_sequences]
+        sentences = [s.sentence for s in seqs]
+        scores = [s.score for s in seqs]
+        attentions = [
+            s.attention for s in seqs] if self.get_attention else None
+        return sentences, scores, attentions

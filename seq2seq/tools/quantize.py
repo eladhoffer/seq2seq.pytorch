@@ -14,7 +14,7 @@ def quantize_tensor(x, num_bits=8):
 
     initial_zero_point = qmin - min_val / scale
 
-    zero_point = 0
+    zero_point = 0.
     if initial_zero_point < qmin:
         zero_point = qmin
     elif initial_zero_point > qmax:
@@ -28,7 +28,7 @@ def quantize_tensor(x, num_bits=8):
     return QTensor(tensor=q_x, scale=scale, zero_point=zero_point)
 
 
-def dequantize_tensor(q_x, num_bits=8):
+def dequantize_tensor(q_x):
     return q_x.scale * (q_x.tensor.float() - q_x.zero_point)
 
 
@@ -44,6 +44,7 @@ def quantize_model(model):
     model.type('torch.ByteTensor')
     for n, p in qparams.items():
         model.register_buffer(n, p)
+    model.quantized = True
 
 
 def dequantize_model(model):
@@ -57,3 +58,4 @@ def dequantize_model(model):
             p.copy_(dequantize_tensor(qp))
             model.register_buffer(n + '.quantization.scale', None)
             model.register_buffer(n + '.quantization.zero_point', None)
+    model.quantized = None

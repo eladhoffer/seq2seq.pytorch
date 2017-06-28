@@ -56,6 +56,3 @@ class ResNetCaptionGenerator(Seq2Seq):
             .transpose(0, 1) \
             .transpose(0, 2)  # H*W x B x C
         return (context, hidden)
-
-    def generate(self, inputs, context, get_attention=False):
-        return self.decoder(inputs, context, get_attention=get_attention)
