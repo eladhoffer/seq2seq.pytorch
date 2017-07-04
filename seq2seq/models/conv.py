@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .modules import LayerNorm1d, MaskedConv1d, GatedConv1d
-from .seq2seq import Seq2Seq
+from .seq2seq_base import Seq2Seq
 
 class StackedConv(nn.Module):
 

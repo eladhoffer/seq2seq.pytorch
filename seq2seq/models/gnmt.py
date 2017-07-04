@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .seq2seq import Seq2Seq
+from .seq2seq_base import Seq2Seq
 from .recurrent import RecurrentAttention, bridge_bidirectional_hidden
 
 

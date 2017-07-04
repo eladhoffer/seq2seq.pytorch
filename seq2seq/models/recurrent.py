@@ -6,7 +6,7 @@ from torch.autograd import Variable
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import PackedSequence
-from .seq2seq import Seq2Seq
+from .seq2seq_base import Seq2Seq
 from .attention import GlobalAttention
 
 

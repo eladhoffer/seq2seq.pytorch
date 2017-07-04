@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .modules import LayerNorm1d
 from .attention import MultiHeadAttention
-from .seq2seq import Seq2Seq
+from .seq2seq_base import Seq2Seq
 from seq2seq.tools.config import PAD
 
 

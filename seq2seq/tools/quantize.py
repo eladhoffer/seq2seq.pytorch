@@ -14,14 +14,15 @@ def quantize_tensor(x, num_bits=8):
 
     initial_zero_point = qmin - min_val / scale
 
-    zero_point = 0.
+    zero_point = 0
     if initial_zero_point < qmin:
         zero_point = qmin
     elif initial_zero_point > qmax:
         zero_point = qmax
     else:
-        zero_point = round(initial_zero_point)
+        zero_point = initial_zero_point
 
+    zero_point = int(zero_point)
     q_x = zero_point + x / scale
     q_x.clamp_(qmin, qmax).round_()
     q_x = q_x.round().byte()
