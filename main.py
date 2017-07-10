@@ -66,7 +66,8 @@ parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
                     help='evaluate model FILE on validation set')
 parser.add_argument('--grad_clip', default=5., type=float,
                     help='maximum grad norm value')
-
+parser.add_argument('--max_length', default=100, type=int,
+                    help='maximum sequence length')
 
 def main(args):
     if args.evaluate:
@@ -94,7 +95,7 @@ def main(args):
         elif isinstance(args.devices, dict):
             main_gpu = args.devices.get('input', 0)
         torch.cuda.set_device(main_gpu)
-        cudnn.benchmark = True
+        cudnn.benchmark = False
 
     dataset = getattr(datasets, args.dataset)
     data_config = literal_eval(args.data_config)
@@ -116,10 +117,12 @@ def main(args):
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          batch_first=batch_first,
                                          shuffle=True,
+                                         max_length=args.max_length,
                                          num_workers=args.workers)
     val_loader = val_data.get_loader(batch_size=args.batch_size,
                                      batch_first=batch_first,
                                      shuffle=False,
+                                     max_length=args.max_length,
                                      num_workers=args.workers)
     # define loss function (criterion) and optimizer
     loss_weight = torch.ones(target_tok.vocab_size())
