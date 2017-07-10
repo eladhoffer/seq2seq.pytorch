@@ -83,6 +83,7 @@ class Translator(object):
             context = self.model.bridge(context)
         context_list = [self.model.select_state(
             context, i) for i in range(batch)]
+
         preds, logprobs, attentions = self.generator.beam_search(
             bos, context_list)
         # remove forced  tokens

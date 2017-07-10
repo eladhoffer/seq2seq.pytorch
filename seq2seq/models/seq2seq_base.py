@@ -95,10 +95,7 @@ class Seq2Seq(nn.Module):
         else:
             if state_list[0] is None:
                 return None
-            if state_list[0].dim() == 3 and not self.batch_first:
-                batch_dim = 1
-            else:
-                batch_dim = 0
+            batch_dim = 0 if self.batch_first else 1
             return torch.cat(state_list, batch_dim)
 
     def select_state(self, state, i):
@@ -107,8 +104,5 @@ class Seq2Seq(nn.Module):
         else:
             if state is None:
                 return None
-            if state.dim() == 3 and not self.batch_first:
-                batch_dim = 1
-            else:
-                batch_dim = 0
+            batch_dim = 0 if self.batch_first else 1
             return state.narrow(batch_dim, i, 1)

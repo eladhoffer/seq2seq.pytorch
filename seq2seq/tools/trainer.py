@@ -75,8 +75,8 @@ class Seq2SeqTrainer(object):
         T, B = output.size(0), output.size(1)
         num_words = sum(target_length) - B
 
-        loss = self.criterion(output.contiguous().view(T * B, -1),
-                              target_labels.contiguous().view(-1))
+        loss = self.criterion(output.view(T * B, -1),
+                              target_labels.view(-1))
         loss /= num_words
 
         if training:

@@ -21,26 +21,50 @@ def bridge_bidirectional_hidden(hidden):
         .view(num_layers, batch_size, hidden_size * 2)
 
 
+class StackedRecurrent(nn.Sequential):
+
+    def __init__(self, *modules):
+        super(StackedRecurrent, self).__init__(*modules)
+
+    def forward(self, inputs, hidden=None):
+        hidden = hidden or tuple([None] * len(self))
+        next_hidden = []
+        for i, module in enumerate(self._modules.values()):
+            output, h = module(inputs, hidden[i])
+            next_hidden.append(h)
+        return output, tuple(next_hidden)
+
+
 class RecurrentEncoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=128,
+    def __init__(self, vocab_size, hidden_size=128, embedding_size=None,
                  num_layers=1, bias=True, batch_first=False,
-                 dropout=0, bidirectional=False, rnn=nn.LSTM):
+                 dropout=0, bidirectional=False, num_bidirectional=None, rnn=nn.LSTM):
         super(RecurrentEncoder, self).__init__()
         self.layers = num_layers
         self.bidirectional = bidirectional
-        self.hidden_size = hidden_size
-        embedding_size = hidden_size
-        if bidirectional:
-            assert hidden_size % 2 == 0
-            self.hidden_size = hidden_size // 2
+        embedding_size = embedding_size or hidden_size
         self.embedder = nn.Embedding(vocab_size,
                                      embedding_size,
                                      padding_idx=PAD)
-        self.rnn = rnn(embedding_size, self.hidden_size,
-                       num_layers=num_layers, bias=bias,
-                       batch_first=batch_first,
-                       dropout=dropout, bidirectional=bidirectional)
+        if bidirectional and num_bidirectional is None or num_bidirectional > 0:
+            assert hidden_size % 2 == 0
+            hidden_size = hidden_size // 2
+        if num_bidirectional is not None and num_bidirectional < num_layers:
+            self.rnn = StackedRecurrent()
+            self.rnn.add_module('bidirectional', rnn(embedding_size, hidden_size,
+                                                     num_layers=num_bidirectional, bias=bias,
+                                                     batch_first=batch_first,
+                                                     dropout=dropout, bidirectional=True))
+            self.rnn.add_module('unidirectional', rnn(hidden_size * 2, hidden_size * 2,
+                                                      num_layers=num_layers - num_bidirectional, bias=bias,
+                                                      batch_first=batch_first,
+                                                      dropout=dropout, bidirectional=False))
+        else:
+            self.rnn = rnn(embedding_size, hidden_size,
+                           num_layers=num_layers, bias=bias,
+                           batch_first=batch_first,
+                           dropout=dropout, bidirectional=bidirectional)
 
     def forward(self, inputs, hidden=None):
         if isinstance(inputs, tuple):
@@ -93,90 +117,34 @@ class RecurrentDecoder(nn.Module):
         return x, hidden_t
 
 
-class StackedRecurrentCells(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_layers=1,
-                 dropout=0, bias=True, batch_first=False, rnn_cell=nn.LSTMCell):
-        super(StackedRecurrentCells, self).__init__()
-
-        self.dropout = nn.Dropout(dropout)
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
-        self.layers = nn.ModuleList()
-
-        for _ in range(num_layers):
-            self.layers.append(rnn_cell(input_size, hidden_size, bias=bias))
-            input_size = hidden_size
-
-    def forward(self, inputs, hidden=None):
-        def select_layer(h_state, i):  # To work on both LSTM / GRU, RNN
-            if isinstance(h_state, tuple):
-                return tuple([select_layer(s, i) for s in h_state])
-            else:
-                return h_state[i]
-
-        if hidden is None:
-            zeros = inputs.data.new(
-                self.num_layers, inputs.size(0),  self.hidden_size).zero_()
-            if isinstance(self.layers[0], nn.LSTMCell):
-                hidden = (Variable(zeros, requires_grad=False),
-                          Variable(zeros, requires_grad=False))
-            else:
-                hidden = Variable(zeros, requires_grad=False)
-        next_hidden = []
-        for i, layer in enumerate(self.layers):
-            next_hidden_i = layer(inputs, select_layer(hidden, i))
-            inputs = next_hidden_i[0] if isinstance(next_hidden_i, tuple) \
-                else next_hidden_i
-            if i + 1 != self.num_layers:
-                inputs = self.dropout(inputs)
-            next_hidden.append(next_hidden_i)
-        if isinstance(hidden, tuple):
-            next_hidden = tuple([torch.stack(h) for h in zip(*next_hidden)])
-        else:
-            next_hidden = torch.stack(next_hidden)
-        return inputs, next_hidden
-
-
 class RecurrentAttention(nn.Module):
 
-    def __init__(self, input_size, hidden_size=128,
-                 num_layers=1, bias=True, batch_first=False, context_size=None,
-                 context_transform_size=None, dropout=0, rnn_cell=nn.LSTMCell, attention='bahdanau'):
+    def __init__(self, input_size, context_size, hidden_size=128,
+                 num_layers=1, bias=True, batch_first=False,
+                 attention_size=None, dropout=0, rnn=nn.LSTM, attention='bahdanau'):
         super(RecurrentAttention, self).__init__()
         self.layers = num_layers
-        if context_transform_size is not None:  # additional transform on context before attention
-            self.context_transform = nn.Linear(
-                context_size, context_transform_size)
-            context_size = context_transform_size
-        self.rnn = StackedRecurrentCells(input_size, hidden_size,
-                                         num_layers=num_layers, bias=bias,
-                                         batch_first=batch_first,
-                                         dropout=dropout, rnn_cell=rnn_cell)
+        if attention_size is not None:  # additional transform on context before attention
+            self.context_transform = nn.Linear(context_size, attention_size)
+            context_size = attention_size
+        self.rnn = rnn(input_size, hidden_size,
+                       num_layers=num_layers, bias=bias,
+                       batch_first=batch_first,
+                       dropout=dropout)
         self.attn = AttentionLayer(hidden_size, context_size, mode=attention,
                                    batch_first=batch_first, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
         self.hidden_size = hidden_size
 
     def forward(self, inputs, hidden, context, mask_attention=None, get_attention=False):
-        outputs = []
-        attentions = []
+        self.attn.set_mask(mask_attention)
         if hasattr(self, 'context_transform'):
             context = self.context_transform(context)
-        if mask_attention is not None:
-            self.attn.set_mask(mask_attention)
-        for input_t in inputs.split(1):
-            input_t = input_t.squeeze(0)
-            output_t, hidden = self.rnn(input_t, hidden)
-            output_t, attn = self.attn(output_t, context)
-            output_t = self.dropout(output_t)
-            outputs += [output_t]
-            if get_attention:
-                attentions += [attn]
+        outputs, hidden = self.rnn(inputs, hidden)
+        outputs, attentions = self.attn(outputs, context)
+        outputs = self.dropout(outputs)
 
-        outputs = torch.stack(outputs)
         if get_attention:
-            attentions = torch.stack(attentions)
             return outputs, hidden, attentions
         else:
             return outputs, hidden
@@ -184,20 +152,21 @@ class RecurrentAttention(nn.Module):
 
 class RecurrentAttentionDecoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=128,
-                 num_layers=1, bias=True, batch_first=False,
-                 dropout=0, tie_embedding=False, context_size=None,
-                 context_transform_size=None, rnn_cell=nn.LSTMCell, attention='bahdanau'):
+    def __init__(self, vocab_size, context_size, hidden_size=128,
+                 embedding_size=None, num_layers=1, bias=True,
+                 batch_first=False, dropout=0, tie_embedding=False,
+                 attention_size=None, attention='bahdanau'):
         super(RecurrentAttentionDecoder, self).__init__()
+        embedding_size = embedding_size or hidden_size
         self.layers = num_layers
 
         self.embedder = nn.Embedding(vocab_size,
-                                     hidden_size,
+                                     embedding_size,
                                      padding_idx=PAD)
-        self.rnn = RecurrentAttention(hidden_size, hidden_size,
-                                      context_size=context_size, context_transform_size=context_transform_size,
+        self.rnn = RecurrentAttention(hidden_size, context_size, hidden_size,
+                                      attention_size=attention_size,
                                       num_layers=num_layers, bias=bias, batch_first=batch_first,
-                                      dropout=dropout, rnn_cell=rnn_cell, attention=attention)
+                                      dropout=dropout, attention=attention)
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_size, vocab_size)
         if tie_embedding:
@@ -209,8 +178,9 @@ class RecurrentAttentionDecoder(nn.Module):
         context, hidden, padding_mask = context
         emb = self.embedder(inputs)
         if get_attention:
-            x, hidden, attentions = self.rnn(
-                emb, hidden, context, get_attention=get_attention)
+            x, hidden, attentions = self.rnn(emb, hidden, context,
+                                             mask_attention=padding_mask,
+                                             get_attention=get_attention)
         else:
             x, hidden = self.rnn(emb, hidden, context,
                                  mask_attention=padding_mask)
@@ -229,17 +199,26 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=256, num_layers=2, embedding_size=None,
                  num_layers_decoder=None, num_layers_encoder=None,
-                 bidirectional_encoder=True, bias=True, dropout=0,
-                 attention='bahdanau', tie_embedding=False, transfer_hidden=True):
+                 embedding_size_encoder=None, embedding_size_decoder=None,
+                 hidden_size_encoder=None, hidden_size_decoder=None, bias=True, dropout=0, tie_embedding=False,
+                 bidirectional_encoder=True,  num_bidirectional=None,
+                 attention='bahdanau', attention_size=None, transfer_hidden=True):
         super(RecurrentAttentionSeq2Seq, self).__init__()
         self.transfer_hidden = transfer_hidden
-        embedding_size = embedding_size
+        embedding_size = embedding_size or hidden_size
         num_layers_encoder = num_layers_encoder or num_layers
         num_layers_decoder = num_layers_decoder or num_layers
-        self.encoder = RecurrentEncoder(vocab_size, hidden_size=hidden_size, bidirectional=bidirectional_encoder,
-                                        num_layers=num_layers_encoder, bias=bias, dropout=dropout)
-        self.decoder = RecurrentAttentionDecoder(vocab_size, hidden_size=hidden_size,
-                                                 tie_embedding=tie_embedding, attention=attention,
+        embedding_size_encoder = embedding_size_encoder or embedding_size
+        embedding_size_decoder = embedding_size_decoder or embedding_size
+        hidden_size_encoder = hidden_size_encoder or hidden_size
+        hidden_size_decoder = hidden_size_decoder or hidden_size
+
+        self.encoder = RecurrentEncoder(vocab_size, hidden_size=hidden_size_encoder,
+                                        embedding_size=embedding_size_encoder, bidirectional=bidirectional_encoder,
+                                        num_bidirectional=num_bidirectional, num_layers=num_layers_encoder, bias=bias, dropout=dropout)
+        self.decoder = RecurrentAttentionDecoder(vocab_size, hidden_size_encoder, hidden_size=hidden_size,
+                                                 embedding_size=embedding_size_decoder, tie_embedding=tie_embedding,
+                                                 attention=attention, attention_size=attention_size,
                                                  num_layers=num_layers_decoder, bias=bias, dropout=dropout)
 
         if tie_embedding:
