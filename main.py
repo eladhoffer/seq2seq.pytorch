@@ -95,7 +95,7 @@ def main(args):
         elif isinstance(args.devices, dict):
             main_gpu = args.devices.get('input', 0)
         torch.cuda.set_device(main_gpu)
-        cudnn.benchmark = False
+        cudnn.benchmark = True
 
     dataset = getattr(datasets, args.dataset)
     data_config = literal_eval(args.data_config)

@@ -97,6 +97,9 @@ class AttentionLayer(nn.Module):
         if single_query:
             context = context.squeeze(1)
             scores_normalized = scores_normalized.squeeze(1)
+        elif not self.batch_first:
+            context = context.transpose(0, 1)
+            scores_normalized = scores_normalized.transpose(0, 1)
 
         return context, scores_normalized
 
