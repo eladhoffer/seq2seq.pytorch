@@ -1,66 +1,87 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+""" Implementations of attention layers."""
 
 
-class GlobalAttention(nn.Module):
-    # Borrowed from https://github.com/OpenNMT/OpenNMT-py
+class AttentionLayer(nn.Module):
     """
-    Global attention takes a matrix and a query vector. It
-    then computes a parameterized convex combination of the matrix
-    based on the input query.
+    Attention layer according to https://arxiv.org/abs/1409.0473.
 
-
-            H_1 H_2 H_3 ... H_n
-              q   q   q       q
-                |  |   |       |
-                  \ |   |      /
-                          .....
-                      \   |  /
-                              a
-
-    Constructs a unit mapping.
-        $$(H_1 + H_n, q) => (a)$$
-        Where H is of `batch x n x dim` and q is of `batch x dim`.
-
-        The full def is  $$\tanh(W_2 [(softmax((W_1 q + b_1) H) H), q] + b_2)$$.:
-
+    Params:
+      num_units: Number of units used in the attention layer
     """
 
-    def __init__(self, dim, context_dim=None, bias=False, batch_first=False):
-        super(GlobalAttention, self).__init__()
-        context_dim = context_dim or dim
-        self.linear_in = nn.Linear(dim, context_dim, bias=bias)
-        self.sm = nn.Softmax()
-        self.linear_out = nn.Linear(dim + context_dim, dim, bias=bias)
-        self.tanh = nn.Tanh()
+    def __init__(self, query_size, key_size=None, value_size=None, mode='bahdanau',
+                 normalize=False, dropout=0, batch_first=False, output_transform=True):
+        super(AttentionLayer, self).__init__()
+        assert mode == 'bahdanau' or mode == 'dot_prod'
+        key_size = key_size or query_size  # Usually key and query sizes are the same
+        value_size = value_size or key_size  # Usually key and values are the same
+        self.mode = mode
+        self.normalize = normalize
+        if mode == 'bahdanau':
+            self.linear_att = nn.Linear(key_size, 1)
+            if normalize:
+                self.linear_att = nn.utils.weight_norm(self.linear_att)
+        if output_transform:
+            self.linear_out = nn.Linear(query_size + key_size, key_size)
+        self.linear_q = nn.Linear(query_size, key_size)
+        self.dropout = nn.Dropout(dropout)
         self.batch_first = batch_first
         self.mask = None
 
     def set_mask(self, mask):
+        # applies a mask of b x t length
         self.mask = mask
-
-    def forward(self, inputs, context):
-        """
-        inputs: batch x dim
-        context: sourceL x batch x dim
-        """
         if not self.batch_first:
-            context = context.transpose(0, 1)
-        targetT = self.linear_in(inputs).unsqueeze(2)  # batch x dim x 1
+            self.mask = self.mask.t()
 
-        # Get attention
-        attn = torch.bmm(context, targetT).squeeze(2)  # batch x sourceL
+    def calc_score(self, att_query, att_keys):
+        """
+        att_query is: b x n
+        att_keys is b x t x n
+        """
+        b, t, n = list(att_keys.size())
+        if self.mode == 'bahdanau':
+            att_query = att_query.unsqueeze(1).expand(b, t, n)
+            sum_qk = att_query + att_keys
+            sum_qk = sum_qk.view(b * t, n)
+            return self.linear_att(F.tanh(sum_qk)).view(b, t)
+        elif self.mode == 'dot_prod':
+            att_query = att_query.view(b, n, 1)
+            out = torch.bmm(att_keys, att_query).view(b, t)
+            if self.normalize:
+                out = out / (n ** 0.5)
+            return out
+
+    def forward(self, query, keys, values=None):
+        if not self.batch_first:
+            keys = keys.transpose(0, 1)
+            if values is not None:
+                values = values.transpose(0, 1)
+        values = values or keys
+
+        b, t, n = list(values.size())
+
+        # Fully connected layers to transform query
+        att_query = self.linear_q(query)
+
+        scores = self.calc_score(att_query, keys)  # size b x t
         if self.mask is not None:
-            attn.data.masked_fill_(self.mask, -float('inf'))
-        attn = self.sm(attn)
-        attn3 = attn.view(attn.size(0), 1, attn.size(1))  # batch x 1 x sourceL
+            scores.data.masked_fill_(self.mask, -1e12)
 
-        weightedContext = torch.bmm(attn3, context).squeeze(1)  # batch x context_dim
-        contextCombined = torch.cat((weightedContext, inputs), 1)
+        # Normalize the scores
+        scores_normalized = F.softmax(scores).unsqueeze(1)  # b x 1 x t
 
-        contextOutput = self.tanh(self.linear_out(contextCombined))
+        # Calculate the weighted average of the attention inputs
+        # according to the scores
+        scores_normalized = self.dropout(scores_normalized)
+        context = torch.bmm(scores_normalized, values).squeeze(1)  # b x n
 
-        return contextOutput, attn
+        if hasattr(self, 'linear_out'):
+            context = F.tanh(self.linear_out(torch.cat([query, context], 1)))
+        return context, scores_normalized
 
 
 class SDPAttention(nn.Module):
@@ -72,12 +93,16 @@ class SDPAttention(nn.Module):
         super(SDPAttention, self).__init__()
         self.causal = causal
         self.dropout = nn.Dropout(dropout)
-        self.softmax = nn.Softmax()
-        self.mask = None
+        self.mask_q = None
+        self.mask_k = None
 
-    def set_mask(self, masked_tq):
+    def set_mask_q(self, masked_tq):
         # applies a mask of b x tq length
-        self.mask = masked_tq
+        self.mask_q = masked_tq
+
+    def set_mask_k(self, masked_tk):
+        # applies a mask of b x tk length
+        self.mask_k = masked_tk
 
     def forward(self, q, k, v):
         b_q, t_q, dim_q = list(q.size())
@@ -89,14 +114,20 @@ class SDPAttention(nn.Module):
         b = b_q
         qk = torch.bmm(q, k.transpose(1, 2))  # b x t_q x t_k
         qk = qk / (dim_k ** 0.5)
-        if self.mask is not None:
-            mask = self.mask.unsqueeze(1).expand(b, t_q, t_k)
-            qk.data.masked_fill_(mask, -float('inf'))
+        mask = None
         if self.causal:
             causal_mask = q.data.new(t_q, t_k).byte().fill_(1).triu_(1)
-            causal_mask = causal_mask.unsqueeze(0).expand(b, t_q, t_k)
-            qk.data.masked_fill_(causal_mask, -float('inf'))
-        sm_qk = self.softmax(qk.view(-1, t_k)).view(b, t_q, t_k)
+            mask = causal_mask.unsqueeze(0).expand(b, t_q, t_k)
+        if self.mask_k is not None:
+            mask_k = self.mask_k.unsqueeze(1).expand(b, t_q, t_k)
+            mask = mask_k if mask is None else mask | mask_k
+        if self.mask_q is not None:
+            mask_q = self.mask_q.unsqueeze(2).expand(b, t_q, t_k)
+            mask = mask_q if mask is None else mask | mask_q
+        if mask is not None:
+            qk.data.masked_fill_(mask, -1e9)
+
+        sm_qk = F.softmax(qk.view(-1, t_k)).view(b, t_q, t_k)
         sm_qk = self.dropout(sm_qk)
         return torch.bmm(sm_qk, v)  # b x t_q x dim_v
 
@@ -118,9 +149,13 @@ class MultiHeadAttention(nn.Module):
         self.linear_out = nn.Linear(input_size, output_size)
         self.sdp_attention = SDPAttention(dropout=dropout, causal=causal)
 
-    def set_mask(self, masked_tq):
+    def set_mask_q(self, masked_tq):
         # applies a mask of b x tq length
-        self.sdp_attention.mask = masked_tq
+        self.sdp_attention.set_mask_q(masked_tq)
+
+    def set_mask_k(self, masked_tk):
+        # applies a mask of b x tk length
+        self.sdp_attention.set_mask_k(masked_tk)
 
     def forward(self, q, k, v):
 

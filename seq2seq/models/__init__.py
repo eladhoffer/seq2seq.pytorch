@@ -1,4 +1,4 @@
-from .attention import GlobalAttention, MultiHeadAttention, SDPAttention
+from .attention import AttentionLayer, MultiHeadAttention, SDPAttention
 from .transformer import Transformer, TransformerAttentionDecoder, TransformerAttentionEncoder
 from .bytenet import ByteNet
 from .seq2seq_base import Seq2Seq

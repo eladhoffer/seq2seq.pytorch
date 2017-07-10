@@ -47,7 +47,8 @@ class EncoderBlock(nn.Module):
                                 nn.Linear(inner_linear, hidden_size))
 
     def set_mask(self, mask):
-        self.attention.set_mask(mask)
+        self.attention.set_mask_q(mask)
+        self.attention.set_mask_k(mask)
 
     def forward(self, inputs):
         x = inputs
@@ -81,9 +82,12 @@ class DecoderBlock(nn.Module):
                                 nn.Dropout(dropout),
                                 nn.Linear(inner_linear, hidden_size))
 
-    def set_mask(self, mask):
-        self.attention.set_mask(mask)
-        self.masked_attention.set_mask(mask)
+    def set_mask(self, mask, context_mask=None):
+        if context_mask is not None:
+            self.attention.set_mask_k(context_mask)
+        self.masked_attention.set_mask_q(mask)
+        self.masked_attention.set_mask_k(mask)
+
 
     def forward(self, inputs, context):
         x = inputs
@@ -104,7 +108,7 @@ class DecoderBlock(nn.Module):
 
 class TransformerAttentionEncoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, inner_linear=1024, mask_symbol=0, dropout=0):
+    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, inner_linear=1024, mask_symbol=PAD, dropout=0):
 
         super(TransformerAttentionEncoder, self).__init__()
         self.mask_symbol = mask_symbol
@@ -116,8 +120,8 @@ class TransformerAttentionEncoder(nn.Module):
                                      ])
 
     def forward(self, inputs, hidden=None):
-        if self.mask_symbol:
-            padding_mask = inputs.eq(self.mask_symbol)
+        if self.mask_symbol is not None:
+            padding_mask = inputs.data.eq(self.mask_symbol)
         else:
             padding_mask = None
         x = self.embedder(inputs) * self.scale_embedding
@@ -128,14 +132,15 @@ class TransformerAttentionEncoder(nn.Module):
             block.set_mask(padding_mask)
             x = block(x)
 
-        return x
+        return x, padding_mask
 
 
 class TransformerAttentionDecoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, inner_linear=1024, tie_embedding=True):
+    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, inner_linear=1024, mask_symbol=PAD, tie_embedding=True):
 
         super(TransformerAttentionDecoder, self).__init__()
+        self.mask_symbol = mask_symbol
         self.embedder = nn.Embedding(vocab_size, hidden_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout)
@@ -147,11 +152,17 @@ class TransformerAttentionDecoder(nn.Module):
             self.embedder.weight = self.classifier.weight
 
     def forward(self, inputs, context):
+        context, context_mask = context
+        if self.mask_symbol is not None:
+            padding_mask = inputs.data.eq(self.mask_symbol)
+        else:
+            padding_mask = None
         x = self.embedder(inputs) * self.scale_embedding
         x = x + Variable(positional_embedding(x), requires_grad=False)
         x = self.dropout(x)
 
         for block in self.blocks:
+            block.set_mask(padding_mask, context_mask)
             x = block(x, context)
         x = x.view(-1, x.size(2))
         x = self.classifier(x)
@@ -178,12 +189,3 @@ class Transformer(Seq2Seq):
         return super(Transformer, self).generate(input_list, state_list, k=k,
                                                  feed_all_timesteps=feed_all_timesteps,
                                                  get_attention=get_attention)
-        # return self.decode(inputs, context)
-        # if hasattr(self, 'cache') and self.cache is not None:
-        #     self.cache = self.cache.expand(inputs.size(0), self.cache.size(1))
-        #     inputs = torch.cat([self.cache, inputs], 1)
-        # self.cache = inputs.clone()
-        # return self.decode(self.cache, context)
-
-    def clear_state(self):
-        self.cache = None
