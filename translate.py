@@ -15,7 +15,7 @@ parser.add_argument('input', help='input file for translation')
 parser.add_argument('-o', '--output', help='output file')
 parser.add_argument('-m', '--model',
                     help='model checkpoint file')
-parser.add_argument('--beam_size', default=12, type=int,
+parser.add_argument('--beam_size', default=8, type=int,
                     help='beam size used')
 parser.add_argument('--max_sequence_length', default=50, type=int,
                     help='maximum prediciton length')
