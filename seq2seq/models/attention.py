@@ -24,7 +24,7 @@ class AttentionLayer(nn.Module):
             if normalize:
                 self.linear_att = nn.utils.weight_norm(self.linear_att)
         if output_transform:
-            self.linear_out = nn.Linear(query_size + key_size, key_size)
+            self.linear_out = nn.Linear(query_size + key_size, query_size)
         self.linear_q = nn.Linear(query_size, key_size)
         self.dropout = nn.Dropout(dropout)
         self.batch_first = batch_first

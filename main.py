@@ -69,6 +69,7 @@ parser.add_argument('--grad_clip', default=5., type=float,
 parser.add_argument('--max_length', default=100, type=int,
                     help='maximum sequence length')
 
+
 def main(args):
     if args.evaluate:
         args.results_dir = '/tmp'
@@ -98,16 +99,21 @@ def main(args):
         cudnn.benchmark = True
 
     dataset = getattr(datasets, args.dataset)
-    data_config = literal_eval(args.data_config)
-    train_data = dataset(args.dataset_dir, split='train', **data_config)
-    val_data = dataset(args.dataset_dir, split='dev', **data_config)
-    _, target_tok = train_data.tokenizers.values()
+    args.data_config = literal_eval(args.data_config)
+    train_data = dataset(args.dataset_dir, split='train', **args.data_config)
+    val_data = dataset(args.dataset_dir, split='dev', **args.data_config)
+    src_tok, target_tok = train_data.tokenizers.values()
 
     regime = literal_eval(args.optimization_config)
+    model_config = literal_eval(args.model_config)
 
-    regime = literal_eval(args.optimization_config)
-    model_config = dict(vocab_size=target_tok.vocab_size(),
-                        **literal_eval(args.model_config))
+    model_config.setdefault('encoder', {})
+    model_config.setdefault('decoder', {})
+    model_config['encoder']['vocab_size'] = src_tok.vocab_size()
+    model_config['decoder']['vocab_size'] = target_tok.vocab_size()
+    model_config['vocab_size'] = target_tok.vocab_size()
+    args.model_config = model_config
+
     model = getattr(models, args.model)(**model_config)
     batch_first = getattr(model, 'batch_first', False)
 

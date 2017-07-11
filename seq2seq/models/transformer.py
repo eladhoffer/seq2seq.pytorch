@@ -88,7 +88,6 @@ class DecoderBlock(nn.Module):
         self.masked_attention.set_mask_q(mask)
         self.masked_attention.set_mask_k(mask)
 
-
     def forward(self, inputs, context):
         x = inputs
         res = x
@@ -152,7 +151,7 @@ class TransformerAttentionDecoder(nn.Module):
             self.embedder.weight = self.classifier.weight
 
     def forward(self, inputs, context):
-        context, context_mask = context
+        context_enc, context_mask = context
         if self.mask_symbol is not None:
             padding_mask = inputs.data.eq(self.mask_symbol)
         else:
@@ -163,7 +162,7 @@ class TransformerAttentionDecoder(nn.Module):
 
         for block in self.blocks:
             block.set_mask(padding_mask, context_mask)
-            x = block(x, context)
+            x = block(x, context_enc)
         x = x.view(-1, x.size(2))
         x = self.classifier(x)
         x = x.view(inputs.size(0), inputs.size(1), -1)
@@ -172,14 +171,33 @@ class TransformerAttentionDecoder(nn.Module):
 
 class Transformer(Seq2Seq):
 
-    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, inner_linear=2048, dropout=0.1, tie_embedding=True):
+    def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6,
+                 num_heads=8, inner_linear=2048, dropout=0.1, tie_embedding=True,
+                 encoder=None, decoder=None):
         super(Transformer, self).__init__(batch_first=True)
-        self.encoder = TransformerAttentionEncoder(vocab_size, hidden_size=hidden_size,
-                                                   num_layers=num_layers, num_heads=num_heads, inner_linear=inner_linear,
-                                                   dropout=dropout)
-        self.decoder = TransformerAttentionDecoder(vocab_size, hidden_size=hidden_size,
-                                                   num_layers=num_layers, num_heads=num_heads, inner_linear=inner_linear,
-                                                   dropout=dropout, tie_embedding=tie_embedding)
+        embedding_size = embedding_size or hidden_size
+        # keeping encoder, decoder None will result with default configuration
+        encoder = encoder or {}
+        decoder = decoder or {}
+        encoder.setdefault('embedding_size', embedding_size)
+        encoder.setdefault('hidden_size', hidden_size)
+        encoder.setdefault('num_layers', num_layers)
+        encoder.setdefault('num_heads', num_heads)
+        encoder.setdefault('vocab_size', vocab_size)
+        encoder.setdefault('dropout', dropout)
+        encoder.setdefault('inner_linear', inner_linear)
+
+        decoder.setdefault('embedding_size', embedding_size)
+        decoder.setdefault('hidden_size', hidden_size)
+        decoder.setdefault('num_layers', num_layers)
+        decoder.setdefault('num_heads', num_heads)
+        decoder.setdefault('tie_embedding', tie_embedding)
+        decoder.setdefault('vocab_size', vocab_size)
+        decoder.setdefault('dropout', dropout)
+        decoder.setdefault('inner_linear', inner_linear)
+
+        self.encoder = TransformerAttentionEncoder(**encoder)
+        self.decoder = TransformerAttentionDecoder(**decoder)
 
         if tie_embedding:
             self.encoder.embedder.weight = self.decoder.classifier.weight

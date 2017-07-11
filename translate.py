@@ -6,6 +6,7 @@ import codecs
 from ast import literal_eval
 import torch
 import torch.backends.cudnn as cudnn
+from seq2seq import models
 from seq2seq.tools.inference import Translator
 
 parser = argparse.ArgumentParser(
@@ -45,7 +46,9 @@ if __name__ == '__main__':
     else:
         cuda = False
     checkpoint = torch.load(args.model)
-    model = checkpoint['model']
+    config = checkpoint['config']
+    model = getattr(models, config.model)(**config.model_config)
+    model.load_state_dict(checkpoint['state_dict'])
     src_tok, target_tok = checkpoint['tokenizers'].values()
     translation_model = Translator(model,
                                    src_tok=src_tok,

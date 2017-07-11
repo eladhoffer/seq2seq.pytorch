@@ -157,7 +157,6 @@ class Seq2SeqTrainer(object):
     def save(self, filename=None, identifier=None, is_best=False, save_all=False):
         state = {
             'epoch': self.epoch,
-            'model': self.model,
             'state_dict': self.model.state_dict(),
             'perplexity': getattr(self, 'perplexity', None),
             'regime': self.regime
