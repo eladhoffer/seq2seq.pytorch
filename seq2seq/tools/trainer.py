@@ -67,7 +67,7 @@ class Seq2SeqTrainer(object):
 
         if self.batch_first:
             output = model(src_var, target_var[:, :-1])
-            target_labels = target_var[:, 1:]
+            target_labels = target_var[:, 1:].contiguous()
         else:
             output = model(src_var, target_var[:-1])
             target_labels = target_var[1:]

@@ -14,8 +14,7 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument('input', help='input file for translation')
 parser.add_argument('-o', '--output', help='output file')
-parser.add_argument('-m', '--model',
-                    help='model checkpoint file')
+parser.add_argument('-m', '--model', help='model checkpoint file')
 parser.add_argument('--beam_size', default=8, type=int,
                     help='beam size used')
 parser.add_argument('--max_sequence_length', default=50, type=int,
@@ -28,7 +27,8 @@ parser.add_argument('--devices', default='0',
                     help='device assignment (e.g "0,1", {"encoder":0, "decoder":1})')
 parser.add_argument('--type', default='torch.cuda.FloatTensor',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
-
+parser.add_argument('--verobse', action='store_true',
+                    help='print translations on screen')
 if __name__ == '__main__':
     args = parser.parse_args()
     args.devices = literal_eval(args.devices)

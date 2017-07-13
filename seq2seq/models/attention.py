@@ -182,9 +182,9 @@ class MultiHeadAttention(nn.Module):
         b_q, t_q, dim_q = list(q.size())
         b_k, t_k, dim_k = list(k.size())
         b_v, t_v, dim_v = list(v.size())
-        qw = self.linear_q(q.view(-1, dim_q)).view(b_q, t_q, dim_q)
-        kw = self.linear_k(k.view(-1, dim_k)).view(b_k, t_k, dim_k)
-        vw = self.linear_v(v.view(-1, dim_v)).view(b_v, t_v, dim_v)
+        qw = self.linear_q(q)
+        kw = self.linear_k(k)
+        vw = self.linear_v(v)
         qw = qw.chunk(self.num_heads, 2)
         kw = kw.chunk(self.num_heads, 2)
         vw = vw.chunk(self.num_heads, 2)
@@ -194,4 +194,4 @@ class MultiHeadAttention(nn.Module):
             output.append(out_h)
         output = torch.cat(output, 2)
 
-        return self.linear_out(output.view(-1, output.size(2))).view(b_q, t_q, self.output_size)
+        return self.linear_out(output)

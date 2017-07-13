@@ -139,9 +139,8 @@ class RecurrentDecoder(nn.Module):
         x, hidden_t = self.rnn(emb, hidden)
         if isinstance(inputs, tuple):
             x = unpack(x)[0]
-        x = x.view(-1, x.size(2))
+
         x = self.classifier(x)
-        x = x.view(inputs.size(0), inputs.size(1), -1)
         return x, hidden_t
 
 
@@ -162,7 +161,6 @@ class RecurrentAttention(nn.Module):
                              dropout=dropout)
         self.attn = AttentionLayer(hidden_size, context_size, batch_first=batch_first,
                                    **attention)
-        self.dropout = nn.Dropout(dropout)
         self.hidden_size = hidden_size
 
     def forward(self, inputs, hidden, context, mask_attention=None, get_attention=False):
@@ -171,7 +169,6 @@ class RecurrentAttention(nn.Module):
             context = self.context_transform(context)
         outputs, hidden = self.rnn(inputs, hidden)
         outputs, attentions = self.attn(outputs, context)
-        outputs = self.dropout(outputs)
 
         if get_attention:
             return outputs, hidden, attentions
@@ -197,7 +194,6 @@ class RecurrentAttentionDecoder(nn.Module):
                                       bias=bias, batch_first=batch_first, dropout=dropout,
                                       context_transform=context_transform, residual=residual,
                                       attention=attention)
-        self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_size, vocab_size)
         if tie_embedding:
             self.classifier.weight = self.embedder.weight
@@ -214,9 +210,7 @@ class RecurrentAttentionDecoder(nn.Module):
         else:
             x, hidden = self.rnn(emb, hidden, context,
                                  mask_attention=padding_mask)
-        x = x.view(-1, x.size(2))
         x = self.classifier(x)
-        x = x.view(inputs.size(0), inputs.size(1), -1)
 
         context = (context, hidden, padding_mask)
         if get_attention:

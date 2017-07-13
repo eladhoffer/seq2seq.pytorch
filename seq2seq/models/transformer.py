@@ -56,9 +56,7 @@ class EncoderBlock(nn.Module):
         x = self.attention(x, x, x)
         x = self.lnorm1(res + self.dropout(x))
         res = x
-        x = x.view(-1, x.size(2))
         x = self.fc(x)
-        x = x.view(res.size(0), res.size(1), res.size(2))
         x = self.lnorm2(res + self.dropout(x))
 
         return x
@@ -97,9 +95,7 @@ class DecoderBlock(nn.Module):
         x = self.attention(x, context, context)
         x = self.lnorm2(res + self.dropout(x))
         res = x
-        x = x.view(-1, x.size(2))
         x = self.fc(x)
-        x = x.view(res.size(0), res.size(1), res.size(2))
         x = self.lnorm3(res + self.dropout(x))
 
         return x
@@ -107,11 +103,15 @@ class DecoderBlock(nn.Module):
 
 class TransformerAttentionEncoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, inner_linear=1024, mask_symbol=PAD, dropout=0):
+    def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
+                 num_layers=6, num_heads=8, inner_linear=1024,
+                 mask_symbol=PAD, dropout=0):
 
         super(TransformerAttentionEncoder, self).__init__()
+        embedding_size = embedding_size or hidden_size
         self.mask_symbol = mask_symbol
-        self.embedder = nn.Embedding(vocab_size, hidden_size, padding_idx=PAD)
+        self.embedder = nn.Embedding(
+            vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout)
         self.blocks = nn.ModuleList([EncoderBlock(hidden_size, num_heads, inner_linear, dropout)
@@ -136,11 +136,15 @@ class TransformerAttentionEncoder(nn.Module):
 
 class TransformerAttentionDecoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=512, num_layers=6, num_heads=8, dropout=0, inner_linear=1024, mask_symbol=PAD, tie_embedding=True):
+    def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
+                 num_layers=6, num_heads=8, dropout=0, inner_linear=1024,
+                 mask_symbol=PAD, tie_embedding=True):
 
         super(TransformerAttentionDecoder, self).__init__()
+        embedding_size = embedding_size or hidden_size
         self.mask_symbol = mask_symbol
-        self.embedder = nn.Embedding(vocab_size, hidden_size, padding_idx=PAD)
+        self.embedder = nn.Embedding(
+            vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout)
         self.blocks = nn.ModuleList([DecoderBlock(hidden_size, num_heads, inner_linear, dropout)
@@ -163,9 +167,7 @@ class TransformerAttentionDecoder(nn.Module):
         for block in self.blocks:
             block.set_mask(padding_mask, context_mask)
             x = block(x, context_enc)
-        x = x.view(-1, x.size(2))
         x = self.classifier(x)
-        x = x.view(inputs.size(0), inputs.size(1), -1)
         return x, context
 
 
