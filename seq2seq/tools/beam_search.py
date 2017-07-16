@@ -131,7 +131,7 @@ class SequenceGenerator(object):
         partial_sequences = [TopN(self.beam_size) for _ in range(batch_size)]
         complete_sequences = [TopN(self.beam_size) for _ in range(batch_size)]
 
-        words, logprobs, new_state, attention = self.model.generate(
+        words, logprobs, new_state = self.model.generate(
             initial_input, initial_state,
             k=self.beam_size,
             feed_all_timesteps=True,
@@ -143,7 +143,7 @@ class SequenceGenerator(object):
                     state=new_state[b],
                     logprob=logprobs[b][k],
                     score=logprobs[b][k],
-                    attention=None if attention is None else [attention[b]])
+                    attention=None if not self.get_attention else [new_state[b].attention_score])
                 partial_sequences[b].push(seq)
 
         # Run beam search.
@@ -156,7 +156,7 @@ class SequenceGenerator(object):
             input_feed = [c.sentence for c in flattened_partial]
             state_feed = [c.state for c in flattened_partial]
 
-            words, logprobs, new_states, attentions \
+            words, logprobs, new_states \
                 = self.model.generate(
                     input_feed, state_feed,
                     k=self.beam_size, get_attention=self.get_attention)
@@ -165,8 +165,10 @@ class SequenceGenerator(object):
             for b in range(batch_size):
                 for partial in partial_sequences_list[b]:
                     state = new_states[idx]
-                    if attentions is not None:
-                        attention = partial.attention + [attentions[idx]]
+                    if self.get_attention:
+                        attention = partial.attention + [new_states[idx].attention_score]
+                    else:
+                        attention = None
                     for k in range(self.beam_size):
                         w = words[idx][k]
                         sentence = partial.sentence + [w]

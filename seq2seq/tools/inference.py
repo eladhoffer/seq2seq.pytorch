@@ -77,15 +77,13 @@ class Translator(object):
         if self.cuda:
             src = src.cuda()
 
-        self.model.clear_state()
         context = self.model.encode(src)
         if hasattr(self.model, 'bridge'):
-            context = self.model.bridge(context)
-        context_list = [self.model.select_state(
-            context, i) for i in range(batch)]
+            state = self.model.bridge(context)
+        state_list = [state[i] for i in range(batch)]
 
         preds, logprobs, attentions = self.generator.beam_search(
-            bos, context_list)
+            bos, state_list)
         # remove forced  tokens
         preds = [p[len(self.insert_target_start):] for p in preds]
         output = [self.target_tok.detokenize(p[:-1]) for p in preds]
@@ -146,13 +144,13 @@ class CaptionGenerator(Translator):
             bos = list(self.target_tok.tokenize(target_priming,
                                                 insert_start=self.insert_target_start))
         self.model.clear_state()
-        context = self.model.encode(src)
-        _, c, h, w = list(context[0].size())
+        state = self.model.encode(src)
+        _, c, h, w = list(state[0].size())
         if hasattr(self.model, 'bridge'):
-            context = self.model.bridge(context)
+            state = self.model.bridge(state)
 
         [preds], [logprobs], [attentions] = self.generator.beam_search([bos], [
-                                                                       context])
+                                                                       state])
         # remove forced  tokens
         output = self.target_tok.detokenize(
             preds[len(self.insert_target_start):-1])

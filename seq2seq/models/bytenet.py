@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .modules import LayerNorm1d, MaskedConv1d
+from .modules.normalization import LayerNorm1d
+from .modules.conv import MaskedConv1d
 
 class ResidualBlock(nn.Module):
 

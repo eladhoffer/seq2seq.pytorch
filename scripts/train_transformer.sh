@@ -1,5 +1,5 @@
 DATASET=${1:-"WMT16_de_en"}
-DATASET_DIR=${2:-"./datasets/data/wmt16_de_en"}
+DATASET_DIR=${2:-"/media/drive/Datasets/wmt16_de_en"}
 OUTPUT_DIR=${3:-"./results"}
 
 python main.py \

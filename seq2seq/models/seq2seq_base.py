@@ -4,6 +4,7 @@ from torch.nn.parallel import data_parallel
 from torch.autograd import Variable
 from torch.nn.functional import log_softmax
 from seq2seq.tools.utils import batch_padded_sequences
+from .modules.state import State
 
 
 class Seq2Seq(nn.Module):
@@ -16,6 +17,9 @@ class Seq2Seq(nn.Module):
             self.bridge = bridge
         self.batch_first = batch_first
 
+    def bridge(self, context):
+        return State(context=context)
+
     def encode(self, inputs, hidden=None, devices=None):
         if isinstance(devices, tuple):
             return data_parallel(self.encoder, (inputs, hidden),
@@ -24,18 +28,18 @@ class Seq2Seq(nn.Module):
         else:
             return self.encoder(inputs, hidden)
 
-    def decode(self, inputs, context, get_attention=None, devices=None):
+    def decode(self, inputs, state, get_attention=None, devices=None):
         if isinstance(devices, tuple):
-            inputs = (inputs, context, get_attention) if get_attention else (
-                inputs, context)
+            inputs = (inputs, state, get_attention) if get_attention else (
+                inputs, state)
             return data_parallel(self.decoder, inputs,
                                  device_ids=devices,
                                  dim=0 if self.batch_first else 1)
         else:
             if get_attention:
-                return self.decoder(inputs, context, get_attention=get_attention)
+                return self.decoder(inputs, state, get_attention=get_attention)
             else:
-                return self.decoder(inputs, context)
+                return self.decoder(inputs, state)
 
     def forward(self, input_encoder, input_decoder, encoder_hidden=None, devices=None):
         if not isinstance(devices, dict):
@@ -43,13 +47,10 @@ class Seq2Seq(nn.Module):
         context = self.encode(input_encoder, encoder_hidden,
                               devices=devices.get('encoder', None))
         if hasattr(self, 'bridge'):
-            context = self.bridge(context)
+            state = self.bridge(context)
         output, hidden = self.decode(
-            input_decoder, context, devices=devices.get('decoder', None))
+            input_decoder, state, devices=devices.get('decoder', None))
         return output
-
-    def clear_state(self):
-        pass
 
     def generate(self, input_list, state_list, k=1, feed_all_timesteps=False, get_attention=False):
         # assert isinstance(input_list, list) or isinstance(input_list, tuple)
@@ -72,37 +73,13 @@ class Seq2Seq(nn.Module):
         inputs_var = Variable(inputs, volatile=True)
         if next(self.decoder.parameters()).is_cuda:
             inputs_var = inputs_var.cuda()
-        states = self.merge_states(state_list)
 
-        if get_attention:
-            logits, new_states, attention = self.decode(
-                inputs_var, states, get_attention=True)
-            attention = attention.select(time_dim, -1).data
-        else:
-            attention = None
-            logits, new_states = self.decode(inputs_var, states)
+        states = State().from_list(state_list)
+        logits, new_states = self.decode(
+            inputs_var, states, get_attention=get_attention)
         # use only last prediction
         logits = logits.select(time_dim, -1).contiguous()
         logprobs = log_softmax(logits.view(-1, logits.size(-1)))
         logprobs, words = logprobs.data.topk(k, 1)
-        new_states = [self.select_state(new_states, i)
-                      for i in range(len(input_list))]
-        return words, logprobs, new_states, attention
-
-    def merge_states(self, state_list):
-        if isinstance(state_list[0], tuple):
-            return tuple([self.merge_states(s) for s in zip(*state_list)])
-        else:
-            if state_list[0] is None:
-                return None
-            batch_dim = 0 if self.batch_first else 1
-            return torch.cat(state_list, batch_dim)
-
-    def select_state(self, state, i):
-        if isinstance(state, tuple):
-            return tuple(self.select_state(s, i) for s in state)
-        else:
-            if state is None:
-                return None
-            batch_dim = 0 if self.batch_first else 1
-            return state.narrow(batch_dim, i, 1)
+        new_states_list = [new_states[i] for i in range(len(input_list))]
+        return words, logprobs, new_states_list

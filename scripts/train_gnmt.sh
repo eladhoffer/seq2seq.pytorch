@@ -11,6 +11,7 @@ python main.py \
                    'tie_embedding': True, 'transfer_hidden': False, \
                    'encoder': {'num_layers': 7, 'bidirectional': True, 'num_bidirectional': 1}, \
                    'decoder': {'num_layers': 8, 'context_transform': 256, \
+                               'concat_attention': True, 'num_pre_attention_layers': 1, \
                                'attention': {'mode': 'bahdanau', 'normalize': True}}}" \
   --data_config "{'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
   --b 32 \

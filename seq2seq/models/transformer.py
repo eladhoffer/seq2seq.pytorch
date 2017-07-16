@@ -3,10 +3,11 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
-from .modules import LayerNorm1d
-from .attention import MultiHeadAttention
+from .modules.normalization import LayerNorm1d
+from .modules.attention import MultiHeadAttention
 from .seq2seq_base import Seq2Seq
 from seq2seq.tools.config import PAD
+from .modules.state import State
 
 
 def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4):
@@ -131,7 +132,7 @@ class TransformerAttentionEncoder(nn.Module):
             block.set_mask(padding_mask)
             x = block(x)
 
-        return x, padding_mask
+        return State(outputs=x, mask=padding_mask, batch_first=True)
 
 
 class TransformerAttentionDecoder(nn.Module):
@@ -154,8 +155,8 @@ class TransformerAttentionDecoder(nn.Module):
         if tie_embedding:
             self.embedder.weight = self.classifier.weight
 
-    def forward(self, inputs, context):
-        context_enc, context_mask = context
+    def forward(self, inputs, state):
+        context = state.context
         if self.mask_symbol is not None:
             padding_mask = inputs.data.eq(self.mask_symbol)
         else:
@@ -165,10 +166,10 @@ class TransformerAttentionDecoder(nn.Module):
         x = self.dropout(x)
 
         for block in self.blocks:
-            block.set_mask(padding_mask, context_mask)
-            x = block(x, context_enc)
+            block.set_mask(padding_mask, context.mask)
+            x = block(x, context.outputs)
         x = self.classifier(x)
-        return x, context
+        return x, state
 
 
 class Transformer(Seq2Seq):
