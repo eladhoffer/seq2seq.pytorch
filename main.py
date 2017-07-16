@@ -5,6 +5,7 @@ import os
 import logging
 from ast import literal_eval
 from datetime import datetime
+from math import inf
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -170,7 +171,7 @@ def main(args):
 
     logging.info('training regime: %s', regime)
 
-    best_perplexity = 0
+    best_perplexity = inf
     for epoch in range(args.start_epoch, args.epochs):
         trainer.epoch = epoch
         # train for one epoch
@@ -180,8 +181,8 @@ def main(args):
         val_loss, val_perplexity = trainer.evaluate(val_loader)
 
         # remember best prec@1 and save checkpoint
-        is_best = val_perplexity > best_perplexity
-        best_perplexity = max(val_perplexity, best_perplexity)
+        is_best = val_perplexity < best_perplexity
+        best_perplexity = min(val_perplexity, best_perplexity)
         if is_best:
             trainer.save(is_best=True)
 
