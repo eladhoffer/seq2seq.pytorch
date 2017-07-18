@@ -5,7 +5,6 @@ import os
 import logging
 from ast import literal_eval
 from datetime import datetime
-from math import inf
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -171,7 +170,7 @@ def main(args):
 
     logging.info('training regime: %s', regime)
 
-    best_perplexity = inf
+    best_perplexity = float('inf')
     for epoch in range(args.start_epoch, args.epochs):
         trainer.epoch = epoch
         # train for one epoch
