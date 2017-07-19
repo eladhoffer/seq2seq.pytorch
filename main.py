@@ -130,14 +130,9 @@ def main(args):
                                      shuffle=False,
                                      max_length=args.max_length,
                                      num_workers=args.workers)
-    # define loss function (criterion) and optimizer
-    loss_weight = torch.ones(target_tok.vocab_size())
-    loss_weight[PAD] = 0
-    criterion = nn.CrossEntropyLoss(weight=loss_weight, size_average=False)
-    criterion.type(args.type)
+
 
     trainer_options = dict(
-        criterion=criterion,
         grad_clip=args.grad_clip,
         save_path=save_path,
         save_info={'tokenizers': train_data.tokenizers,

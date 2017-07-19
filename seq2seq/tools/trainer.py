@@ -11,14 +11,31 @@ from torch.nn.utils import clip_grad_norm
 import shutil
 import math
 from .utils import *
+from .config import PAD
 
 __all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer', 'Img2SeqTrainer']
+
+
+class AddLossModule(nn.Module):
+    """adds a loss to module for easy parallelization"""
+
+    def __init__(self, module, criterion):
+        super(AddLossModule, self).__init__()
+        self.module = module
+        self.criterion = criterion
+
+    def forward(self, module_inputs, target):
+        output = self.module(*module_inputs)
+        output = output.view(-1, output.size(2))
+        target = target.view(-1)
+        return self.criterion(output, target).view(1, 1)
 
 
 class Seq2SeqTrainer(object):
     """class for Trainer."""
 
-    def __init__(self, model, criterion, regime,
+    def __init__(self, model, regime,
+                 criterion=None,
                  print_freq=10,
                  save_freq=1000,
                  grad_clip=None,
@@ -31,7 +48,9 @@ class Seq2SeqTrainer(object):
                  cuda=True):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
-        self.criterion = criterion
+        self.criterion = criterion or nn.CrossEntropyLoss(
+            size_average=False, ignore_index=PAD)
+
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.1)
         self.grad_clip = grad_clip
         self.epoch = 0
@@ -46,37 +65,36 @@ class Seq2SeqTrainer(object):
         self.batch_first = batch_first
         self.perplexity = None
         self.devices = devices
+        self.model_with_loss = AddLossModule(self.model, self.criterion)
+        if isinstance(self.devices, tuple):
+            self.model_with_loss = DataParallel(self.model_with_loss,
+                                                self.devices,
+                                                dim=0 if self.batch_first else 1)
 
     def iterate(self, src, target, training=True):
         src, src_length = src
         target, target_length = target
-        if isinstance(self.devices, tuple):
-            model = DataParallel(self.model, self.devices,
-                                 dim=0 if self.batch_first else 1)
-        else:
-            model = lambda *x: self.model(*x,
-                                          devices=self.devices)
+        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
+        T, B = target.size(time_dim), target.size(batch_dim)
+        num_words = sum(target_length) - B
 
-        if self.cuda:
+        if self.cuda and not isinstance(self.model_with_loss, DataParallel):
             src = src.cuda()
             target = target.cuda()
+
         src_var = Variable(src, volatile=not training)
         target_var = Variable(target, volatile=not training)
 
         # compute output
 
         if self.batch_first:
-            output = model(src_var, target_var[:, :-1])
+            inputs = (src_var, target_var[:, :-1])
             target_labels = target_var[:, 1:].contiguous()
         else:
-            output = model(src_var, target_var[:-1])
+            inputs = (src_var, target_var[:-1])
             target_labels = target_var[1:]
 
-        T, B = output.size(0), output.size(1)
-        num_words = sum(target_length) - B
-
-        loss = self.criterion(output.view(T * B, -1),
-                              target_labels.view(-1))
+        loss = self.model_with_loss(inputs, target_labels).sum()
         loss /= num_words
 
         if training:
