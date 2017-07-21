@@ -1,9 +1,10 @@
 import torch
 from torch.autograd import Variable
 
+
 class State(object):
-    __slots__ = ['hidden', 'inputs', 'outputs', 'context', 'attention',
-                 'attention_score', 'mask', 'batch_first']
+    __slots__ = ['batch_first', 'hidden', 'inputs', 'outputs', 'context',
+                 'attention', 'attention_score', 'mask']
 
     def __init__(self, hidden=None, inputs=None, outputs=None, context=None, attention=None,
                  attention_score=None, mask=None, batch_first=False):
@@ -43,7 +44,7 @@ class State(object):
                     batch_dim = 0 if self.batch_first else 1
                 return torch.cat(state_list, batch_dim)
             else:
-                assert state_list[1:] == state_list[:-1] #all items are equal
+                assert state_list[1:] == state_list[:-1]  # all items are equal
                 return state_list[0]
 
     def __getitem__(self, index):

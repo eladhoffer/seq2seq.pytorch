@@ -18,7 +18,8 @@ class Seq2Seq(nn.Module):
             self.bridge = bridge
 
     def bridge(self, context):
-        return State(context=context)
+        return State(context=context,
+                     batch_first=getattr(self.decoder, 'batch_first', context.batch_first))
 
     def encode(self, inputs, hidden=None, devices=None):
         if isinstance(devices, tuple):
@@ -48,7 +49,7 @@ class Seq2Seq(nn.Module):
                               devices=devices.get('encoder', None))
         if hasattr(self, 'bridge'):
             state = self.bridge(context)
-        output, hidden = self.decode(
+        output, state = self.decode(
             input_decoder, state, devices=devices.get('decoder', None))
         return output
 
