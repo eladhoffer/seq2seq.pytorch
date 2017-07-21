@@ -110,6 +110,7 @@ class TransformerAttentionEncoder(nn.Module):
 
         super(TransformerAttentionEncoder, self).__init__()
         embedding_size = embedding_size or hidden_size
+        self.batch_first = True
         self.mask_symbol = mask_symbol
         self.embedder = nn.Embedding(
             vocab_size, embedding_size, padding_idx=PAD)
@@ -143,6 +144,7 @@ class TransformerAttentionDecoder(nn.Module):
 
         super(TransformerAttentionDecoder, self).__init__()
         embedding_size = embedding_size or hidden_size
+        self.batch_first = True
         self.mask_symbol = mask_symbol
         self.embedder = nn.Embedding(
             vocab_size, embedding_size, padding_idx=PAD)
@@ -199,6 +201,7 @@ class Transformer(Seq2Seq):
         decoder.setdefault('dropout', dropout)
         decoder.setdefault('inner_linear', inner_linear)
 
+        self.batch_first = True
         self.encoder = TransformerAttentionEncoder(**encoder)
         self.decoder = TransformerAttentionDecoder(**decoder)
 

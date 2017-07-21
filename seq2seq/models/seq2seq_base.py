@@ -9,13 +9,13 @@ from .modules.state import State
 
 class Seq2Seq(nn.Module):
 
-    def __init__(self, encoder=None, decoder=None, bridge=None, batch_first=False):
+    def __init__(self, encoder=None, decoder=None, bridge=None):
         super(Seq2Seq, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
+
         if bridge is not None:
             self.bridge = bridge
-        self.batch_first = batch_first
 
     def bridge(self, context):
         return State(context=context)
@@ -24,7 +24,7 @@ class Seq2Seq(nn.Module):
         if isinstance(devices, tuple):
             return data_parallel(self.encoder, (inputs, hidden),
                                  device_ids=devices,
-                                 dim=0 if self.batch_first else 1)
+                                 dim=0 if self.encoder.batch_first else 1)
         else:
             return self.encoder(inputs, hidden)
 
@@ -34,7 +34,7 @@ class Seq2Seq(nn.Module):
                 inputs, state)
             return data_parallel(self.decoder, inputs,
                                  device_ids=devices,
-                                 dim=0 if self.batch_first else 1)
+                                 dim=0 if self.decoder.batch_first else 1)
         else:
             if get_attention:
                 return self.decoder(inputs, state, get_attention=get_attention)
@@ -57,15 +57,15 @@ class Seq2Seq(nn.Module):
         # assert isinstance(input_list[0], list) or isinstance(
             # input_list[0], tuple)
 
-        time_dim = 1 if self.batch_first else 0
-        view_shape = (-1, 1) if self.batch_first else (1, -1)
+        view_shape = (-1, 1) if self.decoder.batch_first else (1, -1)
+        time_dim = 1 if self.decoder.batch_first else 0
 
         # For recurrent models, the last input frame is all we care about,
         # use feed_all_timesteps whenever the whole input needs to be fed
         if feed_all_timesteps:
             inputs = [torch.LongTensor(inp) for inp in input_list]
             inputs = batch_padded_sequences(
-                inputs, batch_first=self.batch_first)
+                inputs, batch_first=self.encoder.batch_first)
         else:
             inputs = torch.LongTensor(
                 [inputs[-1] for inputs in input_list]).view(*view_shape)

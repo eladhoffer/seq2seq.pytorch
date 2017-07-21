@@ -109,9 +109,10 @@ def main(args):
 
     model_config.setdefault('encoder', {})
     model_config.setdefault('decoder', {})
-    model_config['encoder']['vocab_size'] = src_tok.vocab_size()
-    model_config['decoder']['vocab_size'] = target_tok.vocab_size()
-    model_config['vocab_size'] = target_tok.vocab_size()
+    if hasattr(src_tok, 'vocab_size'):
+        model_config['encoder']['vocab_size'] = src_tok.vocab_size
+    model_config['decoder']['vocab_size'] = target_tok.vocab_size
+    model_config['vocab_size'] = model_config['decoder']['vocab_size']
     args.model_config = model_config
 
     model = getattr(models, args.model)(**model_config)
@@ -130,7 +131,6 @@ def main(args):
                                      shuffle=False,
                                      max_length=args.max_length,
                                      num_workers=args.workers)
-
 
     trainer_options = dict(
         grad_clip=args.grad_clip,

@@ -13,7 +13,8 @@ class AttentionLayer(nn.Module):
     """
 
     def __init__(self, query_size, key_size, value_size=None, mode='bahdanau',
-                 normalize=False, dropout=0, batch_first=False, output_transform=True):
+                 normalize=False, dropout=0, batch_first=False,
+                 output_transform=True, output_size=None):
         super(AttentionLayer, self).__init__()
         assert mode == 'bahdanau' or mode == 'dot_prod'
         value_size = value_size or key_size  # Usually key and values are the same
@@ -24,7 +25,11 @@ class AttentionLayer(nn.Module):
             if normalize:
                 self.linear_att = nn.utils.weight_norm(self.linear_att)
         if output_transform:
-            self.linear_out = nn.Linear(query_size + key_size, query_size)
+            output_size = output_size or query_size
+            self.linear_out = nn.Linear(query_size + key_size, output_size)
+            self.output_size = output_size
+        else:
+            self.output_size = value_size
         self.linear_q = nn.Linear(query_size, key_size)
         self.dropout = nn.Dropout(dropout)
         self.batch_first = batch_first

@@ -23,7 +23,6 @@ class Translator(object):
         self.insert_target_start = [BOS]
         self.insert_src_start = [BOS]
         self.insert_src_end = [EOS]
-        self.batch_first = getattr(model, 'batch_first', False)
         self.get_attention = get_attention
         self.cuda = cuda
         if getattr(model, 'quantized', False):
@@ -72,8 +71,9 @@ class Translator(object):
                                                insert_start=self.insert_target_start)
                 bos = [list(bos)] * batch
 
-        src = Variable(batch_padded_sequences(
-            src_tok, batch_first=self.batch_first), volatile=True)
+        src = Variable(batch_padded_sequences(src_tok,
+                                              batch_first=self.model.encoder.batch_first),
+                       volatile=True)
         if self.cuda:
             src = src.cuda()
 
@@ -82,16 +82,14 @@ class Translator(object):
             state = self.model.bridge(context)
         state_list = [state[i] for i in range(batch)]
 
-        preds, logprobs, attentions = self.generator.beam_search(
-            bos, state_list)
+        seqs = self.generator.beam_search(bos, state_list)
         # remove forced  tokens
-        preds = [p[len(self.insert_target_start):] for p in preds]
+        preds = [s.sentence[len(self.insert_target_start):] for s in seqs]
         output = [self.target_tok.detokenize(p[:-1]) for p in preds]
 
         output = output[0] if flatten else output
-        logprobs = logprobs[0] if flatten else logprobs
         if self.get_attention:
-            attentions = [torch.stack(att, 1) for att in attentions]
+            attentions = [torch.stack(s.attention, 1) for s in seqs]
             if target_priming is not None:
                 preds = [
                     preds[b][-attentions[b].size(1):] for b in range(batch)]
@@ -143,24 +141,21 @@ class CaptionGenerator(Translator):
         else:
             bos = list(self.target_tok.tokenize(target_priming,
                                                 insert_start=self.insert_target_start))
-        self.model.clear_state()
         state = self.model.encode(src)
-        _, c, h, w = list(state[0].size())
+        _, c, h, w = list(state.outputs.size())
         if hasattr(self.model, 'bridge'):
             state = self.model.bridge(state)
 
-        [preds], [logprobs], [attentions] = self.generator.beam_search([bos], [
-                                                                       state])
+        [seq] = self.generator.beam_search([bos], [state])
         # remove forced  tokens
         output = self.target_tok.detokenize(
-            preds[len(self.insert_target_start):-1])
+            seq.sentence[len(self.insert_target_start):-1])
         if len(target_priming) > 0:
             output = [' '.join([target_priming, o]) for o in output]
-        if attentions is not None:
-            attentions = torch.stack([a.view(h, w) for a in attentions], 0)
-            preds = preds[len(self.insert_target_start):]
+        if seq.attention is not None:
+            attentions = torch.stack([a.view(h, w) for a in seq.attention], 0)
+            preds = seq.sentence[len(self.insert_target_start):]
             preds = [self.target_tok.idx2word(idx) for idx in preds]
-
-        return output, (attentions, preds)
-        # for s,p in zip(sentences,logprob):
-        #     print(target_tok.detokenize(s)[::-1],' p=%s' % math.exp(p))
+            return output, (attentions, preds)
+        else:
+            return output

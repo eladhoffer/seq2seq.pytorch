@@ -140,7 +140,6 @@ class WrapTimeCell(nn.Module):
         hidden_size = self.cell.hidden_size
         batch_dim = 0 if self.batch_first else 1
         time_dim = 1 if self.batch_first else 0
-
         if hidden is None:
             batch_size = inputs.size(batch_dim)
             num_layers = getattr(self.cell, 'num_layers', None)
@@ -160,7 +159,8 @@ class WrapTimeCell(nn.Module):
             if self.with_attention:
                 input_t = (input_t, context)
             if self.with_attention and get_attention:
-                output_t, hidden, attn = self.cell(input_t, hidden)
+                output_t, hidden, attn = self.cell(
+                    input_t, hidden, get_attention=True)
                 attentions += [attn]
             else:
                 output_t, hidden = self.cell(input_t, hidden)
@@ -198,7 +198,7 @@ class RecurrentAttention(nn.Module):
         num_pre_attention_layers = num_pre_attention_layers or num_layers
 
         if concat_attention and num_pre_attention_layers > 0:
-            input_size = input_size + context_size
+            input_size = input_size + self.attn.output_size
             embedd_attn = self.attn
         else:
             embedd_attn = None

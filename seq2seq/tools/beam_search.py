@@ -201,8 +201,4 @@ class SequenceGenerator(object):
 
         seqs = [complete.extract(sort=True)[0]
                 for complete in complete_sequences]
-        sentences = [s.sentence for s in seqs]
-        scores = [s.score for s in seqs]
-        attentions = [
-            s.attention for s in seqs] if self.get_attention else None
-        return sentences, scores, attentions
+        return seqs

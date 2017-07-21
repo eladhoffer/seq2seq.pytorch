@@ -29,6 +29,7 @@ class Tokenizer(object):
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
 
+    @property
     def vocab_size(self):
         return len(self.vocab) + len(self.special_tokens)
 
