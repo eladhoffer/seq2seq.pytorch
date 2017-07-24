@@ -153,9 +153,12 @@ class SequenceGenerator(object):
                 p.reset()
             flattened_partial = [
                 s for sub_partial in partial_sequences_list for s in sub_partial]
+
             input_feed = [c.sentence for c in flattened_partial]
             state_feed = [c.state for c in flattened_partial]
-
+            if len(input_feed) == 0:
+                # We have run out of partial candidates; happens when beam_size=1
+                break
             words, logprobs, new_states \
                 = self.model.generate(
                     input_feed, state_feed,
@@ -186,10 +189,6 @@ class SequenceGenerator(object):
                                             logprob, score, attention)
                             partial_sequences[b].push(beam)
                     idx += 1
-                if partial_sequences[b].size() == 0:
-                    # We have run out of partial candidates; happens when beam_size
-                    # = 1.
-                    break
 
         # If we have no complete sequences then fall back to the partial sequences.
         # But never output a mixture of complete and partial sequences because a
@@ -198,7 +197,6 @@ class SequenceGenerator(object):
         for b in range(batch_size):
             if not complete_sequences[b].size():
                 complete_sequences[b] = partial_sequences[b]
-
         seqs = [complete.extract(sort=True)[0]
                 for complete in complete_sequences]
         return seqs

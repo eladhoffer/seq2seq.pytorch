@@ -27,8 +27,9 @@ parser.add_argument('--devices', default='0',
                     help='device assignment (e.g "0,1", {"encoder":0, "decoder":1})')
 parser.add_argument('--type', default='torch.cuda.FloatTensor',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
-parser.add_argument('--verobse', action='store_true',
+parser.add_argument('--verbose', action='store_true',
                     help='print translations on screen')
+                    
 if __name__ == '__main__':
     args = parser.parse_args()
     args.devices = literal_eval(args.devices)
@@ -60,7 +61,11 @@ if __name__ == '__main__':
 
     output_file = codecs.open(args.output, 'w', encoding='UTF-8')
 
-    def write_output(lines):
+    def write_output(lines, source=None):
+        if args.verbose:
+            for i in range(len(lines)):
+                print('\n SOURCE:\t %s TRANSLATION:\t %s' %
+                      (source[i], lines[i]))
         for l in lines:
             output_file.write(l)
             output_file.write('\n')
@@ -72,9 +77,9 @@ if __name__ == '__main__':
                 lines.append(line)
                 continue
             else:
-                write_output(translation_model.translate(lines))
+                write_output(translation_model.translate(lines), lines)
                 lines = [line]
         if len(lines) > 0:
-            write_output(translation_model.translate(lines))
+            write_output(translation_model.translate(lines), lines)
 
     output_file.close()
