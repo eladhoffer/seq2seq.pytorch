@@ -30,10 +30,11 @@ class RecurrentEncoder(nn.Module):
         self.bidirectional = bidirectional
         self.batch_first = batch_first
         embedding_size = embedding_size or hidden_size
+        num_bidirectional = num_bidirectional or num_layers
         self.embedder = nn.Embedding(vocab_size,
                                      embedding_size,
                                      padding_idx=PAD)
-        if bidirectional and num_bidirectional is None or num_bidirectional > 0:
+        if bidirectional and num_bidirectional > 0:
             assert hidden_size % 2 == 0
             hidden_size = hidden_size // 2
         if num_bidirectional is not None and num_bidirectional < num_layers:

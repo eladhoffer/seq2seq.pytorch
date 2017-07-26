@@ -39,13 +39,19 @@ class Translator(object):
             get_attention=get_attention,
             length_normalization_factor=length_normalization_factor)
 
-    def set_src_language(self, language):
-        lang = self.src_tok.special_tokens.index(LANGUAGE_TOKENS(language))
-        self.insert_src_start = [BOS, lang]
+    def set_src_language(self, language=None):
+        if language is None:
+            self.insert_src_start = [BOS]
+        else:
+            lang = self.src_tok.special_tokens.index(LANGUAGE_TOKENS(language))
+            self.insert_src_start = [lang]
 
-    def set_target_language(self, language):
-        lang = self.target_tok.special_tokens.index(LANGUAGE_TOKENS(language))
-        self.insert_target_start = [BOS, lang]
+    def set_target_language(self, language=None):
+        if language is None:
+            self.insert_target_start = [BOS]
+        else:
+            lang = self.target_tok.special_tokens.index(LANGUAGE_TOKENS(language))
+            self.insert_target_start = [lang]
 
     def translate(self, input_sentences, target_priming=None):
         """input_sentences is either a string or list of strings"""
@@ -89,10 +95,9 @@ class Translator(object):
 
         output = output[0] if flatten else output
         if self.get_attention:
-            attentions = [torch.stack(s.attention, 1) for s in seqs]
-            if target_priming is not None:
-                preds = [
-                    preds[b][-attentions[b].size(1):] for b in range(batch)]
+            attentions = [s.attention for s in seqs]
+            # if target_priming is not None:
+                # preds = [preds[b][-len(attentions[b]):] for b in range(batch)]
             attentions = attentions[0] if flatten else attentions
 
             preds = [[self.target_tok.idx2word(

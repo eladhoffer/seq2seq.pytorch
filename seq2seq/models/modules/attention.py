@@ -154,7 +154,7 @@ class SDPAttention(nn.Module):
 
         sm_qk = F.softmax(qk.view(-1, t_k)).view(b, t_q, t_k)
         sm_qk = self.dropout(sm_qk)
-        return torch.bmm(sm_qk, v)  # b x t_q x dim_v
+        return torch.bmm(sm_qk, v), sm_qk  # b x t_q x dim_v
 
 
 class MultiHeadAttention(nn.Module):
@@ -194,9 +194,12 @@ class MultiHeadAttention(nn.Module):
         kw = kw.chunk(self.num_heads, 2)
         vw = vw.chunk(self.num_heads, 2)
         output = []
+        attention_scores = []
         for i in range(self.num_heads):
-            out_h = self.sdp_attention(qw[i], kw[i], vw[i])
+            out_h, score = self.sdp_attention(qw[i], kw[i], vw[i])
             output.append(out_h)
+            attention_scores.append(score)
+
         output = torch.cat(output, 2)
 
-        return self.linear_out(output)
+        return self.linear_out(output), attention_scores

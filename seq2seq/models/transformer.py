@@ -54,7 +54,7 @@ class EncoderBlock(nn.Module):
     def forward(self, inputs):
         x = inputs
         res = x
-        x = self.attention(x, x, x)
+        x, _ = self.attention(x, x, x)
         x = self.lnorm1(res + self.dropout(x))
         res = x
         x = self.fc(x)
@@ -90,16 +90,16 @@ class DecoderBlock(nn.Module):
     def forward(self, inputs, context):
         x = inputs
         res = x
-        x = self.masked_attention(x, x, x)
+        x, _ = self.masked_attention(x, x, x)
         x = self.lnorm1(res + self.dropout(x))
         res = x
-        x = self.attention(x, context, context)
+        x, attn_enc = self.attention(x, context, context)
         x = self.lnorm2(res + self.dropout(x))
         res = x
         x = self.fc(x)
         x = self.lnorm3(res + self.dropout(x))
 
-        return x
+        return x, attn_enc
 
 
 class TransformerAttentionEncoder(nn.Module):
@@ -157,7 +157,7 @@ class TransformerAttentionDecoder(nn.Module):
         if tie_embedding:
             self.embedder.weight = self.classifier.weight
 
-    def forward(self, inputs, state):
+    def forward(self, inputs, state, get_attention=False):
         context = state.context
         if self.mask_symbol is not None:
             padding_mask = inputs.data.eq(self.mask_symbol)
@@ -167,10 +167,15 @@ class TransformerAttentionDecoder(nn.Module):
         x = x + Variable(positional_embedding(x), requires_grad=False)
         x = self.dropout(x)
 
+        attention_scores = []
         for block in self.blocks:
             block.set_mask(padding_mask, context.mask)
-            x = block(x, context.outputs)
+            x, attn_enc = block(x, context.outputs)
+            if get_attention:
+                attention_scores.append(attn_enc)
         x = self.classifier(x)
+        if get_attention:
+            state.attention_score = attention_scores
         return x, state
 
 

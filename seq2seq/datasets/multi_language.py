@@ -124,11 +124,11 @@ class MultiLanguageDataset(object):
     def load_data(self):
         self.datasets = OrderedDict()
         for l in self.languages:
-            insert_start = deepcopy(self.insert_start)
+            insert_start = self.insert_start
             if self.mark_language:
                 lang_idx = self.tokenizers[l]\
                     .special_tokens.index(LANGUAGE_TOKENS(l))
-                insert_start.append(lang_idx)
+                insert_start = [lang_idx]
             insert_end = self.insert_end
 
             def transform(t, insert_start=insert_start, insert_end=insert_end):
@@ -142,6 +142,7 @@ class MultiLanguageDataset(object):
         new_dataset = copy(self)
         new_dataset.datasets = dict(
             {l: d.select_range(start, end) for (l, d) in self.datasets.items()})
+        print(len(new_dataset))
         return new_dataset
 
     def __getitem__(self, index):

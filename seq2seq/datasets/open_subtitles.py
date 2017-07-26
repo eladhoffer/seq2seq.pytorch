@@ -28,7 +28,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
                  test_size=3000):
 
         options = dict(
-            prefix=os.path.join(root, 'train.' + '-'.join(sorted(languages))),
+            prefix=os.path.join(root, split + '.' + '-'.join(sorted(languages))),
             languages=languages,
             tokenization=tokenization,
             num_symbols=num_symbols,
@@ -43,10 +43,3 @@ class OpenSubtitles2016(MultiLanguageDataset):
         )
 
         super(OpenSubtitles2016, self).__init__(**options)
-        if split == 'train':
-            self = self.select_range(0, len(self) - (dev_size + test_size + 1))
-        elif split == 'dev':
-            self = self.select_range(
-                len(self) - (dev_size + test_size), len(self) - (test_size - 1))
-        elif split == 'test':
-            self = self.select_range(len(self) - test_size, len(self))
