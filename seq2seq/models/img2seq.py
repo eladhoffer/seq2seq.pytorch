@@ -45,6 +45,15 @@ class Img2Seq(Seq2Seq):
 
         return State(outputs=x, batch_first=True)
 
+    def load_state_dict(self, state_dict):
+        try:
+            super(Img2Seq, self).load_state_dict(state_dict)
+        except:
+            finetune = self.encoder.finetune
+            self.encoder.finetune = False
+            super(Img2Seq, self).load_state_dict(state_dict)
+            self.encoder.finetune = finetune
+
     def bridge(self, context):
         B, C, H, W = list(context.outputs.size())
         context.outputs = context.outputs.view(B, C, H * W)

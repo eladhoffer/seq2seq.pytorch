@@ -12,6 +12,7 @@ import shutil
 import math
 from .utils import *
 from .config import PAD
+from torch.nn.utils.rnn import PackedSequence
 
 __all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer', 'Img2SeqTrainer']
 
@@ -39,7 +40,6 @@ class Seq2SeqTrainer(object):
                  print_freq=10,
                  save_freq=1000,
                  grad_clip=None,
-                 batch_first=False,
                  save_info={},
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth.tar',
@@ -62,7 +62,6 @@ class Seq2SeqTrainer(object):
         self.regime = regime
         self.cuda = cuda
         self.print_freq = print_freq
-        self.batch_first = batch_first
         self.perplexity = None
         self.devices = devices
         self.model_with_loss = AddLossModule(self.model, self.criterion)
@@ -71,12 +70,23 @@ class Seq2SeqTrainer(object):
                                                 self.devices,
                                                 dim=0 if self.batch_first else 1)
 
+    @property
+    def batch_first(self):
+        return getattr(self.model.encoder, 'batch_first', False)
+
     def iterate(self, src, target, training=True):
         src, src_length = src
         target, target_length = target
         batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
         T, B = target.size(time_dim), target.size(batch_dim)
         num_words = sum(target_length) - B
+
+        # Allow packed source sequences - for cudnn rnns
+        if isinstance(src, PackedSequence):
+            src_pack = src
+            src = src.data
+        else:
+            src_pack = None
 
         if self.cuda and not isinstance(self.model_with_loss, DataParallel):
             src = src.cuda()
@@ -85,7 +95,8 @@ class Seq2SeqTrainer(object):
         src_var = Variable(src, volatile=not training)
         target_var = Variable(target, volatile=not training)
 
-        # compute output
+        if src_pack is not None:
+            src_var = PackedSequence(src_var, src_pack[1])
 
         if self.batch_first:
             inputs = (src_var, target_var[:, :-1])
@@ -94,6 +105,7 @@ class Seq2SeqTrainer(object):
             inputs = (src_var, target_var[:-1])
             target_labels = target_var[1:]
 
+        # compute output
         loss = self.model_with_loss(inputs, target_labels).sum()
         loss /= num_words
 

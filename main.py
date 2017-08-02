@@ -54,6 +54,8 @@ parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     help='mini-batch size (default: 32)')
+parser.add_argument('--pack_encoder_inputs', action='store_true',
+                    help='pack encoder inputs for rnns')
 parser.add_argument('--optimization_config',
                     default="{0: {'optimizer': SGD, 'lr':0.1, 'momentum':0.9}}",
                     type=str, metavar='OPT',
@@ -124,11 +126,13 @@ def main(args):
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          batch_first=batch_first,
                                          shuffle=True,
+                                         pack=args.pack_encoder_inputs,
                                          max_length=args.max_length,
                                          num_workers=args.workers)
     val_loader = val_data.get_loader(batch_size=args.batch_size,
                                      batch_first=batch_first,
                                      shuffle=False,
+                                     pack=args.pack_encoder_inputs,
                                      max_length=args.max_length,
                                      num_workers=args.workers)
 
@@ -138,7 +142,6 @@ def main(args):
         save_info={'tokenizers': train_data.tokenizers,
                    'config': args},
         regime=regime,
-        batch_first=batch_first,
         devices=args.devices,
         print_freq=args.print_freq)
 

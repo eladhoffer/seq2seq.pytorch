@@ -54,16 +54,22 @@ class RecurrentEncoder(nn.Module):
                                  dropout=dropout, bidirectional=bidirectional)
 
     def forward(self, inputs, hidden=None):
-        if isinstance(inputs, tuple):
+        if isinstance(inputs, PackedSequence):
             # Lengths data is wrapped inside a Variable.
-            lengths = inputs[1].data.view(-1).tolist()
-            padding_mask = inputs[0].data.eq(PAD)
-            emb = pack(self.embedder(inputs[0]), lengths)
+            bsizes = inputs[1]
+            emb = PackedSequence(self.embedder(inputs[0]), bsizes)
+            # Get padding mask
+            time_dim = 1 if self.batch_first else 0
+            bsizes = torch.Tensor(bsizes).type_as(inputs[0].data)
+            range_batch = torch.arange(0, bsizes[0]).type_as(inputs[0].data)
+            range_batch = range_batch.unsqueeze(time_dim)
+            bsizes = bsizes.unsqueeze(1 - time_dim)
+            padding_mask = (bsizes - range_batch).le(0)
         else:
             padding_mask = inputs.data.eq(PAD)
             emb = self.embedder(inputs)
         outputs, hidden_t = self.rnn(emb, hidden)
-        if isinstance(inputs, tuple):
+        if isinstance(inputs, PackedSequence):
             outputs = unpack(outputs)[0]
 
         state = State(outputs=outputs, hidden=hidden_t,
@@ -94,14 +100,13 @@ class RecurrentDecoder(nn.Module):
 
     def forward(self, inputs, state):
         hidden = state.hidden
-        if isinstance(inputs, tuple):
+        if isinstance(inputs, PackedSequence):
             # Lengths data is wrapped inside a Variable.
-            lengths = inputs[1].data.view(-1).tolist()
-            emb = pack(self.embedder(inputs[0]), lengths)
+            emb = PackedSequence(self.embedder(inputs[0]), inputs[1])
         else:
             emb = self.embedder(inputs)
         x, hidden_t = self.rnn(emb, hidden)
-        if isinstance(inputs, tuple):
+        if isinstance(inputs, PackedSequence):
             x = unpack(x)[0]
 
         x = self.classifier(x)
@@ -147,7 +152,8 @@ class RecurrentAttentionDecoder(nn.Module):
                                  mask_attention=context.mask)
         x = self.classifier(x)
 
-        new_state = State(hidden=hidden, context=context, batch_first=self.batch_first)
+        new_state = State(hidden=hidden, context=context,
+                          batch_first=self.batch_first)
         if get_attention:
             new_state.attention_score = attentions
         return x, new_state
