@@ -10,6 +10,8 @@ from PIL import ImageFile
 
 from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
 from seq2seq.tools.config import EOS, BOS, PAD, LANGUAGE_TOKENS
+from seq2seq.tools.utils import batch_sequences
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
@@ -42,26 +44,13 @@ def imagenet_transform(scale_size=256, input_size=224, train=True, allow_var_siz
 
 def create_padded_caption_batch(max_length=100, batch_first=False, sort=False, pack=False):
     def collate(img_seq_tuple):
-
         if sort or pack:  # packing requires a sorted batch by length
             img_seq_tuple.sort(key=lambda p: len(p[1]), reverse=True)
         imgs, seqs = zip(*img_seq_tuple)
         imgs = torch.cat([img.unsqueeze(0) for img in imgs], 0)
-        lengths = [min(len(s), max_length) for s in seqs]
-        batch_length = max(lengths)
-        seq_tensor = torch.LongTensor(batch_length, len(seqs)).fill_(PAD)
-        for i, s in enumerate(seqs):
-            end_seq = lengths[i]
-            seq_tensor[:end_seq, i].copy_(s[:end_seq])
-        if batch_first:
-            seq_tensor = seq_tensor.t()
-        else:
-            imgs = imgs.unsqueeze(0)
-        if pack:
-            seq_tensor = pack_padded_sequence(
-                seq_tensor, lengths, batch_first=batch_first)
-        else:
-            seq_tensor = (seq_tensor, lengths)
+        seq_tensor = batch_sequences(seqs, max_length=max_length,
+                                     batch_first=batch_first,
+                                     sort=False, pack=pack)
         return (imgs, seq_tensor)
     return collate
 

@@ -119,25 +119,26 @@ def adjust_optimizer(optimizer, epoch, config):
     return optimizer
 
 
-def batch_padded_sequences(seqs, batch_first=False, sort=False, pack=False):
+def batch_sequences(seqs, max_length=None, batch_first=False, sort=False, pack=False):
+    max_length = max_length or float('inf')
+    batch_dim, time_dim = (0, 1) if batch_first else (1, 0)
     if len(seqs) == 1:
-        return seqs[0].view(1, -1) if batch_first else seqs[0].view(-1, 1)
-    if sort or pack:  # packing requires a sorted batch by length
-        seqs.sort(key=len, reverse=True)
-    lengths = [len(s) for s in seqs]
-    max_length = max(lengths)
-    if batch_first:
-        sz = (len(seqs), max_length)
-        time_dim, batch_dim = 1, 0
+        lengths = [min(len(seqs[0]), max_length)]
+        seq_tensor = seqs[0][:lengths[0]]
+        seq_tensor = seq_tensor.unsqueeze(batch_dim)
     else:
-        sz = (max_length, len(seqs))
-        time_dim, batch_dim = 0, 1
-    seq_tensor = seqs[0].new(*sz).fill_(PAD)
-    for i, s in enumerate(seqs):
-        end_seq = lengths[i]
-        seq_tensor.narrow(time_dim, 0, end_seq).select(batch_dim, i)\
-            .copy_(s[:end_seq])
+        if sort:
+            seqs.sort(key=len, reverse=True)
+        lengths = [min(len(s), max_length) for s in seqs]
+        batch_length = max(lengths)
+        tensor_size = (len(seqs), batch_length) if batch_first \
+            else (batch_length, len(seqs))
+        seq_tensor = torch.LongTensor(*tensor_size).fill_(PAD)
+        for i, seq in enumerate(seqs):
+            end_seq = lengths[i]
+            seq_tensor.narrow(time_dim, 0, end_seq).select(batch_dim, i)\
+                .copy_(seq[:end_seq])
     if pack:
-        return pack_padded_sequence(seq_tensor, lengths, batch_first=batch_first)
-    else:
-        return seq_tensor
+        seq_tensor = pack_padded_sequence(
+            seq_tensor, lengths, batch_first=batch_first)
+    return (seq_tensor, lengths)

@@ -72,7 +72,7 @@ class Seq2SeqTrainer(object):
 
     @property
     def batch_first(self):
-        return getattr(self.model.encoder, 'batch_first', False)
+        return getattr(self.model.decoder, 'batch_first', False)
 
     def iterate(self, src, target, training=True):
         src, src_length = src

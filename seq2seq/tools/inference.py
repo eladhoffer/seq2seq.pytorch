@@ -5,7 +5,7 @@ from torch.autograd import Variable
 from .config import EOS, BOS, LANGUAGE_TOKENS
 from .beam_search import SequenceGenerator
 from torch.nn.functional import adaptive_avg_pool2d
-from .utils import batch_padded_sequences
+from .utils import batch_sequences
 from .quantize import dequantize_model
 
 
@@ -50,7 +50,8 @@ class Translator(object):
         if language is None:
             self.insert_target_start = [BOS]
         else:
-            lang = self.target_tok.special_tokens.index(LANGUAGE_TOKENS(language))
+            lang = self.target_tok.special_tokens.index(
+                LANGUAGE_TOKENS(language))
             self.insert_target_start = [lang]
 
     def translate(self, input_sentences, target_priming=None):
@@ -77,8 +78,8 @@ class Translator(object):
                                                insert_start=self.insert_target_start)
                 bos = [list(bos)] * batch
 
-        src = Variable(batch_padded_sequences(src_tok,
-                                              batch_first=self.model.encoder.batch_first),
+        src = Variable(batch_sequences(src_tok,
+                                       batch_first=self.model.encoder.batch_first)[0],
                        volatile=True)
         if self.cuda:
             src = src.cuda()
@@ -97,7 +98,7 @@ class Translator(object):
         if self.get_attention:
             attentions = [s.attention for s in seqs]
             # if target_priming is not None:
-                # preds = [preds[b][-len(attentions[b]):] for b in range(batch)]
+            # preds = [preds[b][-len(attentions[b]):] for b in range(batch)]
             attentions = attentions[0] if flatten else attentions
 
             preds = [[self.target_tok.idx2word(

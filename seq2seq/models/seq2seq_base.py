@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn.parallel import data_parallel
 from torch.autograd import Variable
 from torch.nn.functional import log_softmax
-from seq2seq.tools.utils import batch_padded_sequences
+from seq2seq.tools.utils import batch_sequences
 from .modules.state import State
 
 
@@ -65,8 +65,8 @@ class Seq2Seq(nn.Module):
         # use feed_all_timesteps whenever the whole input needs to be fed
         if feed_all_timesteps:
             inputs = [torch.LongTensor(inp) for inp in input_list]
-            inputs = batch_padded_sequences(
-                inputs, batch_first=self.encoder.batch_first)
+            inputs = batch_sequences(
+                inputs, batch_first=self.decoder.batch_first)[0]
         else:
             inputs = torch.LongTensor(
                 [inputs[-1] for inputs in input_list]).view(*view_shape)

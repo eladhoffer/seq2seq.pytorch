@@ -1,7 +1,8 @@
 from copy import copy
-from torch.utils.data import Dataset
 import codecs
-import sys
+import torch
+from torch.utils.data import Dataset
+from seq2seq.tools.utils import batch_sequences
 
 
 def list_line_locations(filename):
@@ -53,3 +54,18 @@ class LinedTextDataset(Dataset):
         new_dataset = copy(self)
         new_dataset.items = [item for item in self if filter_func(item)]
         return new_dataset
+
+    def get_loader(self, sort=False, pack=False,
+                   batch_size=1, shuffle=False, sampler=None, num_workers=0,
+                   max_length=None, batch_first=False, pin_memory=False, drop_last=False):
+        collate_fn = lambda seqs: batch_sequences(seqs, max_length=max_length,
+                                                  batch_first=batch_first,
+                                                  sort=sort, pack=pack)
+        return torch.utils.data.DataLoader(self,
+                                           batch_size=batch_size,
+                                           collate_fn=collate_fn,
+                                           sampler=sampler,
+                                           shuffle=shuffle,
+                                           num_workers=num_workers,
+                                           pin_memory=pin_memory,
+                                           drop_last=drop_last)
