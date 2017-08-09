@@ -1,3 +1,4 @@
+from copy import deepcopy
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -10,22 +11,61 @@ from seq2seq.tools.config import PAD
 
 def Recurrent(mode, input_size, hidden_size,
               num_layers=1, bias=True, batch_first=False,
-              dropout=0, bidirectional=False, residual=False, attention_layer=None):
+              dropout=0, bidirectional=False, residual=False,
+              zoneout=None, attention_layer=None, forget_bias=None):
     params = dict(input_size=input_size, hidden_size=hidden_size,
                   num_layers=num_layers, bias=bias, batch_first=batch_first,
                   dropout=dropout, bidirectional=bidirectional)
-    if attention_layer is not None:
-        assert not bidirectional
+    need_to_wrap = attention_layer is not None \
+        or zoneout is not None \
+        or mode not in ['LSTM', 'GRU']
+    if need_to_wrap:
         if mode == 'LSTM':
             rnn_cell = nn.LSTMCell
         elif mode == 'GRU':
             rnn_cell = nn.GRUCell
         else:
-            raise Exception('Unknown mode: attention + {}'.format(mode))
-        cell = StackedsAttentionCell(input_size, hidden_size, attention_layer, num_layers,
-                                     dropout, bias, rnn_cell, residual)
-        module = WrapTimeCell(cell, batch_first=batch_first,
-                              lstm=mode == 'LSTM', with_attention=True)
+            raise Exception('Unknown mode: {}'.format(mode))
+        cell = rnn_cell
+        if zoneout is not None:
+            cell = wrap_zoneout_cell(cell, zoneout)
+
+        if bidirectional:
+            bi_module = ConcatRecurrent()
+            bi_module.add_module('0', TimeRecurrentCell(cell(input_size, hidden_size),
+                                                        batch_first=batch_first,
+                                                        lstm=mode == 'LSTM',
+                                                        with_attention=attention_layer is not None))
+            bi_module.add_module('0.reversed', TimeRecurrentCell(cell(input_size, hidden_size),
+                                                                 batch_first=batch_first,
+                                                                 lstm=mode == 'LSTM',
+                                                                 reverse=True,
+                                                                 with_attention=attention_layer is not None))
+            module = StackedRecurrent(residual)
+            for i in range(num_layers):
+                module.add_module(str(i), bi_module)
+
+        else:
+            if attention_layer is None:
+                cell = StackedCell(rnn_cell=cell,
+                                   input_size=input_size,
+                                   hidden_size=hidden_size,
+                                   num_layers=num_layers,
+                                   residual=residual,
+                                   dropout=dropout)
+            else:
+                cell = StackedsAttentionCell(rnn_cell=cell,
+                                             input_size=input_size,
+                                             hidden_size=hidden_size,
+                                             num_layers=num_layers,
+                                             residual=residual,
+                                             dropout=dropout,
+                                             attention_layer=attention_layer)
+            module = TimeRecurrentCell(cell,
+                                       batch_first=batch_first,
+                                       lstm=mode == 'LSTM',
+                                       with_attention=attention_layer is not None)
+
     else:
         if mode == 'LSTM':
             rnn = nn.LSTM
@@ -33,15 +73,29 @@ def Recurrent(mode, input_size, hidden_size,
             rnn = nn.GRU
         else:
             raise Exception('Unknown mode: {}'.format(mode))
-        if not residual:
-            module = rnn(**params)
-        else:
-            module = StackedRecurrent(residual=True)
+        if residual:
+            rnn = wrap_stacked_recurrent(rnn,
+                                         num_layers=num_layers,
+                                         residual=True)
             params['num_layers'] = 1
-            for i in range(num_layers):
-                module.add_module(str(i), rnn(**params))
+        module = rnn(**params)
+
+    if mode == 'LSTM' and forget_bias is not None:
+        for n, p in module.named_parameters():
+            if 'bias_hh' in n or 'bias_ih' in n:
+                forget_bias_params = p.data.chunk(4)[1]
+                forget_bias_params.fill_(forget_bias / 2)
 
     return module
+
+
+def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False):
+    def f(*kargs, **kwargs):
+        module = StackedRecurrent(residual)
+        for i in range(num_layers):
+            module.add_module(str(i), recurrent_func(*kargs, **kwargs))
+        return module
+    return f
 
 
 class StackedRecurrent(nn.Sequential):
@@ -60,6 +114,20 @@ class StackedRecurrent(nn.Sequential):
                 inputs = output + inputs
             else:
                 inputs = output
+        return output, tuple(next_hidden)
+
+
+class ConcatRecurrent(nn.Sequential):
+
+    def forward(self, inputs, hidden=None):
+        hidden = hidden or tuple([None] * len(self))
+        next_hidden = []
+        outputs = []
+        for i, module in enumerate(self._modules.values()):
+            curr_output, h = module(inputs, hidden[i])
+            outputs.append(curr_output)
+            next_hidden.append(h)
+        output = torch.cat(outputs, -1)
         return output, tuple(next_hidden)
 
 
@@ -125,12 +193,49 @@ class StackedsAttentionCell(StackedCell):
             return output, (hidden_cell, output)
 
 
-class WrapTimeCell(nn.Module):
+def wrap_zoneout_cell(cell_func, zoneout_prob=0):
+    def f(*kargs, **kwargs):
+        return ZoneOutCell(cell_func(*kargs, **kwargs), zoneout_prob)
+    return f
 
-    def __init__(self, cell, batch_first=False, lstm=True, with_attention=False):
-        super(WrapTimeCell, self).__init__()
+
+class ZoneOutCell(nn.Module):
+
+    def __init__(self, cell, zoneout_prob=0):
+        super(ZoneOutCell, self).__init__()
+        self.cell = cell
+        self.hidden_size = cell.hidden_size
+        self.zoneout_prob = zoneout_prob
+
+    def forward(self, inputs, hidden):
+        def zoneout(h, next_h, prob):
+            if isinstance(h, tuple):
+                num_h = len(h)
+                if not isinstance(prob, tuple):
+                    prob = tuple([prob] * num_h)
+                return tuple([zoneout(h[i], next_h[i], prob[i]) for i in range(num_h)])
+            mask = Variable(h.data.new(h.size()).bernoulli_(
+                prob), requires_grad=False)
+            return mask * next_h + (1 - mask) * h
+
+        next_hidden = self.cell(inputs, hidden)
+        next_hidden = zoneout(hidden, next_hidden, self.zoneout_prob)
+        return next_hidden
+
+
+def wrap_time_cell(cell_func, batch_first=False, lstm=True, with_attention=False, reverse=False):
+    def f(*kargs, **kwargs):
+        return TimeRecurrentCell(cell_func(*kargs, **kwargs), batch_first, lstm, with_attention, reverse)
+    return f
+
+
+class TimeRecurrentCell(nn.Module):
+
+    def __init__(self, cell, batch_first=False, lstm=True, with_attention=False, reverse=False):
+        super(TimeRecurrentCell, self).__init__()
         self.cell = cell
         self.lstm = lstm
+        self.reverse = reverse
         self.batch_first = batch_first
         self.with_attention = with_attention
 
@@ -142,7 +247,7 @@ class WrapTimeCell(nn.Module):
         time_dim = 1 if self.batch_first else 0
         if hidden is None:
             batch_size = inputs.size(batch_dim)
-            num_layers = getattr(self.cell, 'num_layers', None)
+            num_layers = getattr(self.cell, 'num_layers', 1)
             zero = inputs.data.new(1).zero_()
             h0 = zero.view(1, 1, 1).expand(num_layers, batch_size, hidden_size)
             hidden = Variable(h0, requires_grad=False)
@@ -154,7 +259,10 @@ class WrapTimeCell(nn.Module):
 
         outputs = []
         attentions = []
-        for input_t in inputs.split(1, time_dim):
+        inputs_time = inputs.split(1, time_dim)
+        if self.reverse:
+            inputs_time.reverse()
+        for input_t in inputs_time:
             input_t = input_t.squeeze(time_dim)
             if self.with_attention:
                 input_t = (input_t, context)
@@ -166,6 +274,8 @@ class WrapTimeCell(nn.Module):
                 output_t, hidden = self.cell(input_t, hidden)
 
             outputs += [output_t]
+        if self.reverse:
+            outputs.reverse()
         outputs = torch.stack(outputs, time_dim)
         if get_attention:
             attentions = torch.stack(attentions, time_dim)
@@ -179,7 +289,7 @@ class RecurrentAttention(nn.Module):
     def __init__(self, input_size, context_size, hidden_size,
                  num_layers=1, bias=True, batch_first=False, dropout=0, concat_attention=True,
                  num_pre_attention_layers=None, mode='LSTM', residual=False,
-                 context_transform=None, attention=None):
+                 context_transform=None, attention=None, forget_bias=None):
         super(RecurrentAttention, self).__init__()
 
         self.hidden_size = hidden_size
@@ -205,14 +315,14 @@ class RecurrentAttention(nn.Module):
 
         self.rnn_att = Recurrent(mode, input_size, hidden_size,
                                  num_layers=num_pre_attention_layers,
-                                 bias=bias, dropout=dropout,
+                                 bias=bias, dropout=dropout, forget_bias=forget_bias,
                                  residual=residual, attention_layer=embedd_attn)
 
         if num_layers > num_pre_attention_layers:
             self.rnn_no_att = Recurrent(mode, hidden_size, hidden_size,
                                         num_layers=num_layers - num_pre_attention_layers, bias=bias,
                                         batch_first=batch_first, residual=residual,
-                                        dropout=dropout)
+                                        dropout=dropout, forget_bias=forget_bias)
 
     def forward(self, inputs, context, hidden=None, mask_attention=None, get_attention=False):
         if hasattr(self, 'context_transform'):

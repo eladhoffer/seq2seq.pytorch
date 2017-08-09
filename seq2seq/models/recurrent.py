@@ -23,7 +23,7 @@ def bridge_bidirectional_hidden(hidden):
 class RecurrentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128, embedding_size=None,
-                 num_layers=1, bias=True, batch_first=False, dropout=0,
+                 num_layers=1, bias=True, batch_first=False, dropout=0, forget_bias=None,
                  bidirectional=False, num_bidirectional=None, mode='LSTM', residual=False):
         super(RecurrentEncoder, self).__init__()
         self.layers = num_layers
@@ -42,10 +42,12 @@ class RecurrentEncoder(nn.Module):
             self.rnn.add_module('bidirectional', Recurrent(mode, embedding_size, hidden_size,
                                                            num_layers=num_bidirectional, bias=bias,
                                                            batch_first=batch_first, residual=residual,
+                                                           forget_bias=forget_bias,
                                                            dropout=dropout, bidirectional=True))
             self.rnn.add_module('unidirectional', Recurrent(mode, hidden_size * 2, hidden_size * 2,
-                                                            num_layers=num_layers - num_bidirectional, bias=bias,
+                                                            num_layers=num_layers - num_bidirectional,
                                                             batch_first=batch_first, residual=residual,
+                                                            forget_bias=forget_bias, bias=bias,
                                                             dropout=dropout, bidirectional=False))
         else:
             self.rnn = Recurrent(mode, embedding_size, hidden_size,
@@ -80,7 +82,7 @@ class RecurrentEncoder(nn.Module):
 class RecurrentDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128,
-                 num_layers=1, bias=True, batch_first=False,
+                 num_layers=1, bias=True, batch_first=False, forget_bias=None,
                  dropout=0, mode='LSTM', residual=False, tie_embedding=True):
         super(RecurrentDecoder, self).__init__()
         self.layers = num_layers
@@ -91,7 +93,7 @@ class RecurrentDecoder(nn.Module):
                                      embedding_size,
                                      padding_idx=PAD)
         self.rnn = Recurrent(mode, embedding_size, self.hidden_size,
-                             num_layers=num_layers, bias=bias,
+                             num_layers=num_layers, bias=bias, forget_bias=forget_bias,
                              batch_first=batch_first, residual=residual,
                              dropout=dropout, bidirectional=False)
         self.classifier = nn.Linear(hidden_size, vocab_size)
@@ -116,7 +118,7 @@ class RecurrentDecoder(nn.Module):
 class RecurrentAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, context_size, hidden_size=128,
-                 embedding_size=None, num_layers=1, bias=True,
+                 embedding_size=None, num_layers=1, bias=True, forget_bias=None,
                  batch_first=False, dropout=0, tie_embedding=False,
                  residual=False, context_transform=None, attention=None,
                  concat_attention=True, num_pre_attention_layers=None):
@@ -131,7 +133,8 @@ class RecurrentAttentionDecoder(nn.Module):
                                      padding_idx=PAD)
         self.rnn = RecurrentAttention(hidden_size, context_size, hidden_size, num_layers=num_layers,
                                       bias=bias, batch_first=batch_first, dropout=dropout,
-                                      context_transform=context_transform, residual=residual,
+                                      context_transform=context_transform,
+                                      forget_bias=forget_bias, residual=residual,
                                       attention=attention, concat_attention=concat_attention,
                                       num_pre_attention_layers=num_pre_attention_layers)
         self.classifier = nn.Linear(hidden_size, vocab_size)
@@ -163,7 +166,7 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=256, num_layers=2, embedding_size=None,
                  bias=True, dropout=0, tie_embedding=False, transfer_hidden=True,
-                 residual=False, encoder=None, decoder=None, batch_first=False):
+                 forget_bias=None, residual=False, encoder=None, decoder=None, batch_first=False):
         super(RecurrentAttentionSeq2Seq, self).__init__()
         embedding_size = embedding_size or hidden_size
         # keeping encoder, decoder None will result with default configuration
@@ -177,6 +180,7 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
         encoder.setdefault('dropout', dropout)
         encoder.setdefault('residual', residual)
         encoder.setdefault('batch_first', batch_first)
+        encoder.setdefault('forget_bias', forget_bias)
 
         decoder.setdefault('embedding_size', embedding_size)
         decoder.setdefault('hidden_size', hidden_size)
@@ -187,6 +191,7 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
         decoder.setdefault('dropout', dropout)
         decoder.setdefault('residual', residual)
         decoder.setdefault('batch_first', batch_first)
+        decoder.setdefault('forget_bias', forget_bias)
         decoder['context_size'] = encoder['hidden_size']
 
         self.encoder = RecurrentEncoder(**encoder)
