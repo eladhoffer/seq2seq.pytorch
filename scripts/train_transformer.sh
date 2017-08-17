@@ -2,6 +2,9 @@ DATASET=${1:-"WMT16_de_en"}
 DATASET_DIR=${2:-"/media/drive/Datasets/wmt16_de_en"}
 OUTPUT_DIR=${3:-"./results"}
 
+WARMUP="4000"
+LR0="512**(-0.5)"
+
 python main.py \
   --save transformer \
   --dataset ${DATASET} \
@@ -13,8 +16,9 @@ python main.py \
   --b 32 \
   --grad_clip 0 \
   --trainer Seq2SeqTrainer \
-  --optimization_config "{0: {'optimizer': 'Adam', 'lr': 1e-4, 'betas': (0.9, 0.98), 'eps':1e-9},
-                          4: {'lr': 5e-5},
-                          6: {'lr': 1e-5},
-                          8: {'optimizer': 'SGD', 'lr': 1e-4, 'momentum':0.9},
-                          10: {'lr': 1e-5, 'momentum':0}}" \
+  --optimization_config "[{'step_lambda':
+                          \"lambda t: { \
+                              'optimizer': 'Adam', \
+                              'lr': ${LR0} * min(t ** -0.5, t * ${WARMUP} ** -1.5), \
+                              'betas': (0.9, 0.98), 'eps':1e-9}\"
+                          }]"

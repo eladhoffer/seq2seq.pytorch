@@ -6,7 +6,7 @@ import pandas as pd
 from bokeh.io import output_file, save, show
 from bokeh.plotting import figure
 from bokeh.layouts import column
-from bokeh.charts import Line, defaults
+from bkcharts import Line, defaults
 from .config import PAD
 
 defaults.width = 800
@@ -91,32 +91,6 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
-
-def adjust_optimizer(optimizer, epoch, config):
-    """Reconfigures the optimizer according to epoch and config dict"""
-    def modify_optimizer(optimizer, setting):
-        if 'optimizer' in setting:
-            optimizer = torch.optim.__dict__[setting['optimizer']](
-                optimizer.param_groups)
-            logging.debug('OPTIMIZER - setting method = %s' %
-                          setting['optimizer'])
-        for param_group in optimizer.param_groups:
-            for key in param_group.keys():
-                if key in setting:
-                    logging.debug('OPTIMIZER - setting %s = %s' %
-                                  (key, setting[key]))
-                    param_group[key] = setting[key]
-        return optimizer
-
-    if callable(config):
-        optimizer = modify_optimizer(optimizer, config(epoch))
-    else:
-        for e in range(epoch + 1):  # run over all epochs - sticky setting
-            if e in config:
-                optimizer = modify_optimizer(optimizer, config[e])
-
-    return optimizer
 
 
 def batch_sequences(seqs, max_length=None, batch_first=False, sort=False, pack=False):

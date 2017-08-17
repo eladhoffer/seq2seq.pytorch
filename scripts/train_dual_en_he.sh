@@ -18,6 +18,6 @@ python main.py \
   --b 64 \
   --max_length 80 \
   --trainer MultiSeq2SeqTrainer \
-  --optimization_config "{0: {'optimizer': 'Adam', 'lr': 1e-3},
-                          4: {'optimizer': 'Adam', 'lr': 1e-4},
-                          8: {'optimizer': 'SGD', 'lr': 1e-4}}" \
+  --optimization_config "[{'epoch': 0, 'optimizer': 'Adam', 'lr': 1e-3},
+                          {'epoch': 4, 'optimizer': 'Adam', 'lr': 1e-4},
+                          {'epoch': 8, 'optimizer': 'SGD', 'lr': 1e-4}]" \

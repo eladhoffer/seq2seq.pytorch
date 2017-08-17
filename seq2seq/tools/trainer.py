@@ -33,13 +33,17 @@ class AddLossModule(nn.Module):
 
 
 class Seq2SeqTrainer(object):
-    """class for Trainer."""
+    """class for Trainer.
+
+     regime is an ordered list by epochs
+     (can be a float indicating relative progress)"""
 
     def __init__(self, model, regime,
                  criterion=None,
                  print_freq=10,
                  save_freq=1000,
                  grad_clip=None,
+                 embedding_grad_clip=None,
                  save_info={},
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth.tar',
@@ -53,6 +57,7 @@ class Seq2SeqTrainer(object):
 
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.1)
         self.grad_clip = grad_clip
+        self.embedding_grad_clip = embedding_grad_clip
         self.epoch = 0
         self.save_info = save_info
         self.save_path = save_path
@@ -60,6 +65,7 @@ class Seq2SeqTrainer(object):
         self.checkpoint_filename = checkpoint_filename
         self.keep_checkpoints = keep_checkpoints
         self.regime = regime
+        self.current_regime_phase = None
         self.cuda = cuda
         self.print_freq = print_freq
         self.perplexity = None
@@ -73,6 +79,61 @@ class Seq2SeqTrainer(object):
     @property
     def batch_first(self):
         return getattr(self.model.decoder, 'batch_first', False)
+
+    def adjust_optimizer(self, epoch, total_steps):
+        """Reconfigures the optimizer according to setting dict"""
+        if self.regime is None:
+            return
+        update_optimizer = False
+        if self.current_regime_phase is None:
+            update_optimizer = True
+            setting = {}
+            # Find the first entry where the epoch is smallest than current
+            for regime_phase, regime_setting in enumerate(self.regime):
+                start_epoch = regime_setting.get('epoch', 0)
+                start_step = regime_setting.get('step', 0)
+                if epoch >= start_epoch or total_steps >= start_step:
+                    self.current_regime_phase = regime_phase
+                    break
+        if len(self.regime) > self.current_regime_phase + 1:
+            next_phase = self.current_regime_phase + 1
+            # Any more regime steps?
+            start_epoch = self.regime[next_phase].get('epoch', float('inf'))
+            start_step = self.regime[next_phase].get('step', float('inf'))
+            if epoch >= start_epoch or total_steps >= start_step:
+                self.current_regime_phase = next_phase
+                update_optimizer = True
+
+        setting = self.regime[self.current_regime_phase]
+
+        if 'lr_decay_rate' in setting and 'lr' in setting:
+            decay_steps = setting.get('lr_decay_steps', 100)
+            if total_steps % decay_steps == 0:
+                decay_rate = setting['lr_decay_rate']
+                setting['lr'] *= decay_rate ** (total_steps / decay_steps)
+                update_optimizer = True
+        elif 'step_lambda' in setting:
+            setting = eval(setting['step_lambda'])(total_steps)
+            update_optimizer = True
+        elif 'epoch_lambda' in setting:
+            setting = eval(setting['epoch_lambda'])(epoch)
+            update_optimizer = True
+
+        if update_optimizer:
+            if 'optimizer' in setting:
+                optim_method = torch.optim.__dict__[setting['optimizer']]
+                if not isinstance(self.optimizer, optim_method):
+                    self.optimizer = optim_method(self.optimizer.param_groups)
+                    logging.debug('OPTIMIZER - setting method = %s' %
+                                  setting['optimizer'])
+            for param_group in self.optimizer.param_groups:
+                for key in param_group.keys():
+                    if key in setting:
+                        new_val = setting[key]
+                        if new_val != param_group[key]:
+                            logging.debug('OPTIMIZER - setting %s = %s' %
+                                          (key, setting[key]))
+                            param_group[key] = setting[key]
 
     def iterate(self, src, target, training=True):
         src, src_length = src
@@ -115,12 +176,20 @@ class Seq2SeqTrainer(object):
             loss.backward()
             if self.grad_clip is not None and self.grad_clip > 0:
                 clip_grad_norm(self.model.parameters(), self.grad_clip)
+            if self.embedding_grad_clip is not None and self.embedding_grad_clip > 0:
+                if hasattr(self.model.encoder, 'embedder'):
+                    clip_grad_norm(self.model.encoder.embedder.parameters(),
+                                   self.embedding_grad_clip)
+                if hasattr(self.model.decoder, 'embedder'):
+                    clip_grad_norm(self.model.decoder.embedder.parameters(),
+                                   self.embedding_grad_clip)
             self.optimizer.step()
         return loss.data[0], num_words
 
     def feed_data(self, data_loader, training=True):
         if training:
             counter = cycle(range(self.keep_checkpoints))
+            total_steps = self.epoch * len(data_loader) + 1
             assert self.optimizer is not None
         batch_time = AverageMeter()
         data_time = AverageMeter()
@@ -131,6 +200,12 @@ class Seq2SeqTrainer(object):
         for i, (src, target) in enumerate(data_loader):
             # measure data loading time
             data_time.update(time.time() - end)
+
+            if training:
+                epoch = self.epoch + float(i) / len(data_loader)
+                # update optimizer according to epoch and steps
+                self.adjust_optimizer(epoch, total_steps)
+                total_steps += 1
 
             # do a train/evaluate iteration
             loss, num_words = self.iterate(src, target, training=training)
@@ -160,9 +235,6 @@ class Seq2SeqTrainer(object):
         return losses.avg, perplexity.avg
 
     def optimize(self, data_loader):
-        if self.regime is not None:
-            self.optimizer = adjust_optimizer(
-                self.optimizer, self.epoch, self.regime)
         # switch to train mode
         self.model.train()
         output = self.feed_data(data_loader, training=True)

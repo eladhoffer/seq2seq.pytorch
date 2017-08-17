@@ -68,6 +68,10 @@ parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
                     help='evaluate model FILE on validation set')
 parser.add_argument('--grad_clip', default=5., type=float,
                     help='maximum grad norm value')
+parser.add_argument('--embedding_grad_clip', default=None, type=float,
+                    help='maximum embedding grad norm value')
+parser.add_argument('--uniform_init', default=None, type=float,
+                    help='if value not None - init weights to U(-value,value)')
 parser.add_argument('--max_length', default=100, type=int,
                     help='maximum sequence length')
 
@@ -138,6 +142,7 @@ def main(args):
 
     trainer_options = dict(
         grad_clip=args.grad_clip,
+        embedding_grad_clip=args.embedding_grad_clip,
         save_path=save_path,
         save_info={'tokenizers': train_data.tokenizers,
                    'config': args},
@@ -151,6 +156,9 @@ def main(args):
     logging.info("number of parameters: %d", num_parameters)
 
     model.type(args.type)
+    if args.uniform_init is not None:
+        for param in model.parameters():
+            param.data.uniform_(args.uniform_init, -args.uniform_init)
 
     # optionally resume from a checkpoint
     if args.evaluate:

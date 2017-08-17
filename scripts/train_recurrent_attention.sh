@@ -12,6 +12,6 @@ python main.py \
   --data_config "{'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
   --b 128 \
   --trainer Seq2SeqTrainer \
-  --optimization_config "{0: {'optimizer': 'Adam', 'lr': 1e-3},
-                          1: {'optimizer': 'Adam', 'lr': 1e-4},
-                          2: {'optimizer': 'SGD', 'lr': 1e-4}}" \
+  --optimization_config "[{'epoch': 0, 'optimizer': 'Adam', 'lr': 1e-3},
+                          {'epoch': 4, 'optimizer': 'Adam', 'lr': 1e-4},
+                          {'epoch': 8, 'optimizer': 'SGD', 'lr': 1e-4}]" \

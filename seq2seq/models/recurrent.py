@@ -22,8 +22,8 @@ def bridge_bidirectional_hidden(hidden):
 
 class RecurrentEncoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=128, embedding_size=None,
-                 num_layers=1, bias=True, batch_first=False, dropout=0, forget_bias=None,
+    def __init__(self, vocab_size, hidden_size=128, embedding_size=None, num_layers=1,
+                 bias=True, batch_first=False, dropout=0, forget_bias=None, context_transform=None,
                  bidirectional=False, num_bidirectional=None, mode='LSTM', residual=False):
         super(RecurrentEncoder, self).__init__()
         self.layers = num_layers
@@ -34,6 +34,9 @@ class RecurrentEncoder(nn.Module):
         self.embedder = nn.Embedding(vocab_size,
                                      embedding_size,
                                      padding_idx=PAD)
+        if context_transform is not None:  # additional transform on context before output
+            self.context_transform = nn.Linear(hidden_size, context_transform)
+
         if bidirectional and num_bidirectional > 0:
             assert hidden_size % 2 == 0
             hidden_size = hidden_size // 2
@@ -73,6 +76,8 @@ class RecurrentEncoder(nn.Module):
         outputs, hidden_t = self.rnn(emb, hidden)
         if isinstance(inputs, PackedSequence):
             outputs = unpack(outputs)[0]
+        if hasattr(self, 'context_transform'):
+            outputs = self.context_transform(outputs)
 
         state = State(outputs=outputs, hidden=hidden_t,
                       mask=padding_mask, batch_first=self.batch_first)
