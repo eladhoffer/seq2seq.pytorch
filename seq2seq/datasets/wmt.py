@@ -20,9 +20,11 @@ class WMT16_de_en(MultiLanguageDataset):
                  insert_end=[EOS],
                  mark_language=False,
                  tokenizers=None,
+                 moses_pretok=False,
                  load_data=True):
-
-        train_prefix = "{root}/train.clean".format(root=root)
+        pretok = '.tok' if moses_pretok else ''
+        train_prefix = "{root}/train{pretok}.clean".format(
+            root=root, pretok=pretok)
         options = dict(
             prefix=train_prefix,
             languages=['en', 'de'],
@@ -47,9 +49,11 @@ class WMT16_de_en(MultiLanguageDataset):
             options['code_files'] = getattr(train_data, 'code_files', None)
             options['vocab_files'] = getattr(train_data, 'vocab_files', None)
             if split == 'dev':
-                prefix = "{root}/newstest2014.clean".format(root=root)
+                prefix = "{root}/newstest2014{pretok}.clean".format(
+                    root=root, pretok=pretok)
             elif split == 'test':
-                prefix = "{root}/newstest2016.clean".format(root=root)
+                prefix = "{root}/newstest2016{pretok}.clean".format(
+                    root=root, pretok=pretok)
 
             options['prefix'] = prefix
         super(WMT16_de_en, self).__init__(**options)

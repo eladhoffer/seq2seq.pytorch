@@ -105,6 +105,16 @@ cp ${OUTPUT_DIR_DATA}/dev/dev/newstest20*.en ${OUTPUT_DIR}
 cp ${OUTPUT_DIR_DATA}/test/test/newstest20*.de ${OUTPUT_DIR}
 cp ${OUTPUT_DIR_DATA}/test/test/newstest20*.en ${OUTPUT_DIR}
 
+# Tokenize data
+for f in ${OUTPUT_DIR}/*.de; do
+  echo "Tokenizing $f..."
+  ${OUTPUT_DIR}/mosesdecoder/scripts/tokenizer/tokenizer.perl -q -l de -threads 8 < $f > ${f%.*}.tok.de
+done
+
+for f in ${OUTPUT_DIR}/*.en; do
+  echo "Tokenizing $f..."
+  ${OUTPUT_DIR}/mosesdecoder/scripts/tokenizer/tokenizer.perl -q -l en -threads 8 < $f > ${f%.*}.tok.en
+done
 
 # Clean all corpora
 for f in ${OUTPUT_DIR}/*.en; do
