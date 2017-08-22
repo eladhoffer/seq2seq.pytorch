@@ -1,6 +1,7 @@
 import time
 import logging
 from itertools import chain, cycle
+from copy import deepcopy
 import torch
 import torch.nn as nn
 import torch.optim
@@ -41,6 +42,7 @@ class Seq2SeqTrainer(object):
     def __init__(self, model, regime,
                  criterion=None,
                  print_freq=10,
+                 eval_freq=1000,
                  save_freq=1000,
                  grad_clip=None,
                  embedding_grad_clip=None,
@@ -59,22 +61,27 @@ class Seq2SeqTrainer(object):
         self.grad_clip = grad_clip
         self.embedding_grad_clip = embedding_grad_clip
         self.epoch = 0
+        self.training_steps = 0
         self.save_info = save_info
-        self.save_path = save_path
-        self.save_freq = save_freq
-        self.checkpoint_filename = checkpoint_filename
-        self.keep_checkpoints = keep_checkpoints
+
         self.regime = regime
         self.current_regime_phase = None
         self.cuda = cuda
         self.print_freq = print_freq
-        self.perplexity = None
+        self.eval_freq = eval_freq
+        self.perplexity = float('inf')
         self.devices = devices
         self.model_with_loss = AddLossModule(self.model, self.criterion)
         if isinstance(self.devices, tuple):
             self.model_with_loss = DataParallel(self.model_with_loss,
                                                 self.devices,
                                                 dim=0 if self.batch_first else 1)
+        self.save_path = save_path
+        self.save_freq = save_freq
+        self.checkpoint_filename = checkpoint_filename
+        self.keep_checkpoints = keep_checkpoints
+        results_file = os.path.join(save_path, 'results.%s')
+        self.results = ResultsLog(results_file % 'csv', results_file % 'html')
 
     @property
     def batch_first(self):
@@ -104,7 +111,7 @@ class Seq2SeqTrainer(object):
                 self.current_regime_phase = next_phase
                 update_optimizer = True
 
-        setting = self.regime[self.current_regime_phase]
+        setting = deepcopy(self.regime[self.current_regime_phase])
 
         if 'lr_decay_rate' in setting and 'lr' in setting:
             decay_steps = setting.get('lr_decay_steps', 100)
@@ -186,11 +193,13 @@ class Seq2SeqTrainer(object):
             self.optimizer.step()
         return loss.data[0], num_words
 
-    def feed_data(self, data_loader, training=True):
+    def _feed_data(self, data_loader, num_iterations=None, training=True):
         if training:
             counter = cycle(range(self.keep_checkpoints))
-            total_steps = self.epoch * len(data_loader) + 1
             assert self.optimizer is not None
+
+        num_iterations = num_iterations or len(data_loader) - 1
+        num_iterations = min(num_iterations, len(data_loader) - 1)
         batch_time = AverageMeter()
         data_time = AverageMeter()
         losses = AverageMeter()
@@ -202,10 +211,10 @@ class Seq2SeqTrainer(object):
             data_time.update(time.time() - end)
 
             if training:
-                epoch = self.epoch + float(i) / len(data_loader)
+                self.epoch += 1. / len(data_loader)
+                self.training_steps += 1
                 # update optimizer according to epoch and steps
-                self.adjust_optimizer(epoch, total_steps)
-                total_steps += 1
+                self.adjust_optimizer(self.epoch, self.training_steps)
 
             # do a train/evaluate iteration
             loss, num_words = self.iterate(src, target, training=training)
@@ -217,39 +226,92 @@ class Seq2SeqTrainer(object):
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-
-            if i % self.print_freq == 0:
-                logging.info('{phase} - Epoch: [{0}][{1}/{2}]\t'
-                             'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                             'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                             'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                             'Perplexity {perplexity.val:.4f} ({perplexity.avg:.4f})'.format(
-                                 self.epoch, i, len(data_loader),
-                                 phase='TRAINING' if training else 'EVALUATING',
-                                 batch_time=batch_time,
-                                 data_time=data_time, loss=losses, perplexity=perplexity))
-            if training and i % self.save_freq == 0:
-                self.save_info['iteration'] = i
-                self.save(identifier=next(counter))
-
-        return losses.avg, perplexity.avg
+            if i > 0 or len(data_loader) == 1:
+                if i % self.print_freq == 0:
+                    logging.info('{phase} - Epoch: [{0}][{1}/{2}]\t'
+                                 'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                                 'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                                 'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                                 'Perplexity {perplexity.val:.4f} ({perplexity.avg:.4f})'.format(
+                                     int(self.epoch), i, len(data_loader),
+                                     phase='TRAINING' if training else 'EVALUATING',
+                                     batch_time=batch_time,
+                                     data_time=data_time, loss=losses, perplexity=perplexity))
+                if training and i % self.save_freq == 0:
+                    self.save(identifier=next(counter))
+                if i % num_iterations == 0:
+                    yield {'loss': losses.avg, 'perplexity': perplexity.avg}
+                    losses.reset()
+                    perplexity.reset()
 
     def optimize(self, data_loader):
         # switch to train mode
         self.model.train()
-        output = self.feed_data(data_loader, training=True)
-        return output
+        for result in self._feed_data(
+                data_loader,
+                num_iterations=self.eval_freq,
+                training=True):
+            yield result
+            self.model.train()
 
     def evaluate(self, data_loader):
         # switch to evaluate mode
         self.model.eval()
-        return self.feed_data(data_loader, training=False)
+        for r in self._feed_data(data_loader, training=False):
+            result = r
+        return result
+
+    def run(self, train_loader, val_loader=None):
+        for train_results in self.optimize(train_loader):
+            results = {'epoch': self.epoch,
+                       'training steps': self.training_steps,
+                       'training loss': train_results['loss'],
+                       'training perplexity': train_results['perplexity']}
+            plot_loss = ['training loss']
+            plot_perplexity = ['training perplexity']
+            val_results = None
+            if val_loader is not None:
+                # evaluate on validation set
+                val_results = self.evaluate(val_loader)
+
+                # remember best prec@1 and save checkpoint
+                is_best = val_results['perplexity'] < self.perplexity
+                if is_best:
+                    self.perplexity = val_results['perplexity']
+                    self.save(is_best=True)
+
+                results['validation loss'] = val_results['loss']
+                results['validation perplexity'] = val_results['perplexity']
+                plot_loss += ['validation loss']
+                plot_perplexity += ['validation perplexity']
+
+            logging.info('Training Loss {loss:.4f} \t'
+                         'Training Perplexity {perplexity:.4f} \t'
+                         .format(loss=train_results['loss'],
+                                 perplexity=train_results['perplexity']))
+            if val_results is not None:
+                logging.info('Validation Loss {loss:.4f} \t'
+                             'Validation Perplexity {perplexity:.4f} \t'
+                             .format(loss=val_results['loss'],
+                                     perplexity=val_results['perplexity']))
+
+            self.results.add(**results)
+            self.results.plot(x='training steps', y=plot_perplexity,
+                              title='Perplexity', ylabel='perplexity')
+            self.results.plot(x='training steps', y=plot_loss,
+                              title='Loss', ylabel='loss')
+            self.results.plot(x='epoch', y=plot_perplexity,
+                              title='Perplexity', ylabel='perplexity')
+            self.results.plot(x='epoch', y=plot_loss,
+                              title='Loss', ylabel='loss')
+            self.results.save()
 
     def load(self, filename):
         if os.path.isfile(filename):
             checkpoint = torch.load(filename)
             self.model.load_state_dict(checkpoint['state_dict'])
             self.epoch = checkpoint['epoch']
+            self.training_steps = checkpoint['training_steps']
             self.perplexity = checkpoint['perplexity']
             logging.info("loaded checkpoint '%s' (epoch %s)",
                          filename, self.epoch)
@@ -259,6 +321,7 @@ class Seq2SeqTrainer(object):
     def save(self, filename=None, identifier=None, is_best=False, save_all=False):
         state = {
             'epoch': self.epoch,
+            'training_steps': self.training_steps,
             'state_dict': self.model.state_dict(),
             'perplexity': getattr(self, 'perplexity', None),
             'regime': self.regime

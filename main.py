@@ -60,8 +60,12 @@ parser.add_argument('--optimization_config',
                     default="{0: {'optimizer': SGD, 'lr':0.1, 'momentum':0.9}}",
                     type=str, metavar='OPT',
                     help='optimization regime used')
-parser.add_argument('--print-freq', '-p', default=10, type=int,
+parser.add_argument('--print-freq', default=50, type=int,
                     help='print frequency (default: 10)')
+parser.add_argument('--save-freq', default=1000, type=int,
+                    help='save frequency (default: 10)')
+parser.add_argument('--eval-freq', default=2500, type=int,
+                    help='evaluation frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
@@ -148,7 +152,9 @@ def main(args):
                    'config': args},
         regime=regime,
         devices=args.devices,
-        print_freq=args.print_freq)
+        print_freq=args.print_freq,
+        save_freq=args.save_freq,
+        eval_freq=args.eval_freq)
 
     trainer_options['model'] = model
     trainer = getattr(trainers, args.trainer)(**trainer_options)
@@ -175,38 +181,11 @@ def main(args):
             logging.error("no checkpoint found at '%s'", args.resume)
 
     logging.info('training regime: %s', regime)
+    trainer.epoch = args.start_epoch
 
-    best_perplexity = float('inf')
-    for epoch in range(args.start_epoch, args.epochs):
-        trainer.epoch = epoch
+    while trainer.epoch < args.epochs:
         # train for one epoch
-        train_loss, train_perplexity = trainer.optimize(train_loader)
-
-        # evaluate on validation set
-        val_loss, val_perplexity = trainer.evaluate(val_loader)
-
-        # remember best prec@1 and save checkpoint
-        is_best = val_perplexity < best_perplexity
-        best_perplexity = min(val_perplexity, best_perplexity)
-        if is_best:
-            trainer.save(is_best=True)
-
-        logging.info('\n Epoch: {0}\t'
-                     'Training Loss {train_loss:.4f} \t'
-                     'Validation Loss {val_loss:.4f} \t'
-                     'Training Perplexity {train_perplexity:.4f} \t'
-                     'Validation Perplexity {val_perplexity:.4f} \t'
-                     .format(epoch + 1, train_loss=train_loss, val_loss=val_loss,
-                             train_perplexity=train_perplexity, val_perplexity=val_perplexity))
-
-        results.add(epoch=epoch + 1, train_loss=train_loss, val_loss=val_loss,
-                    train_perplexity=train_perplexity, val_perplexity=val_perplexity)
-        results.plot(x='epoch', y=['train_loss', 'val_loss'],
-                     title='Loss', ylabel='loss')
-        results.plot(x='epoch', y=['train_perplexity', 'val_perplexity'],
-                     title='Perplexity', ylabel='perplexity')
-
-        results.save()
+        trainer.run(train_loader, val_loader)
 
 
 if __name__ == '__main__':
