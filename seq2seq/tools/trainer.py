@@ -199,7 +199,6 @@ class Seq2SeqTrainer(object):
             assert self.optimizer is not None
 
         num_iterations = num_iterations or len(data_loader) - 1
-        num_iterations = min(num_iterations, len(data_loader) - 1)
         batch_time = AverageMeter()
         data_time = AverageMeter()
         losses = AverageMeter()
@@ -226,8 +225,9 @@ class Seq2SeqTrainer(object):
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-            if i > 0 or len(data_loader) == 1:
-                if i % self.print_freq == 0:
+            last_iteration = (i == len(data_loader) - 1)
+            if i > 0 or last_iteration:
+                if i % self.print_freq == 0 or last_iteration:
                     logging.info('{phase} - Epoch: [{0}][{1}/{2}]\t'
                                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -237,9 +237,9 @@ class Seq2SeqTrainer(object):
                                      phase='TRAINING' if training else 'EVALUATING',
                                      batch_time=batch_time,
                                      data_time=data_time, loss=losses, perplexity=perplexity))
-                if training and i % self.save_freq == 0:
+                if training and (i % self.save_freq == 0 or last_iteration):
                     self.save(identifier=next(counter))
-                if i % num_iterations == 0:
+                if i % num_iterations == 0 or last_iteration:
                     yield {'loss': losses.avg, 'perplexity': perplexity.avg}
                     losses.reset()
                     perplexity.reset()
@@ -269,7 +269,6 @@ class Seq2SeqTrainer(object):
                        'training perplexity': train_results['perplexity']}
             plot_loss = ['training loss']
             plot_perplexity = ['training perplexity']
-            val_results = None
             if val_loader is not None:
                 # evaluate on validation set
                 val_results = self.evaluate(val_loader)
@@ -284,16 +283,6 @@ class Seq2SeqTrainer(object):
                 results['validation perplexity'] = val_results['perplexity']
                 plot_loss += ['validation loss']
                 plot_perplexity += ['validation perplexity']
-
-            logging.info('Training Loss {loss:.4f} \t'
-                         'Training Perplexity {perplexity:.4f} \t'
-                         .format(loss=train_results['loss'],
-                                 perplexity=train_results['perplexity']))
-            if val_results is not None:
-                logging.info('Validation Loss {loss:.4f} \t'
-                             'Validation Perplexity {perplexity:.4f} \t'
-                             .format(loss=val_results['loss'],
-                                     perplexity=val_results['perplexity']))
 
             self.results.add(**results)
             self.results.plot(x='training steps', y=plot_perplexity,
