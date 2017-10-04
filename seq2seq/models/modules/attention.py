@@ -57,7 +57,7 @@ class AttentionLayer(nn.Module):
             sum_qk = sum_qk.view(b * t_k * t_q, n)
             out = self.linear_att(F.tanh(sum_qk)).view(b, t_q, t_k)
         elif self.mode == 'dot_prod':
-            out = torch.bmm(att_query, att_query.transpose(1, 2))
+            out = torch.bmm(att_query, att_keys.transpose(1, 2))
             if self.normalize:
                 out = out / (n ** 0.5)
         return out
