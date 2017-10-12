@@ -10,7 +10,7 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
 from seq2seq import models, datasets
-from seq2seq.tools.utils import setup_logging, ResultsLog
+from seq2seq.tools.utils.log import setup_logging
 from seq2seq.tools.config import PAD
 import seq2seq.tools.trainer as trainers
 
@@ -81,17 +81,16 @@ parser.add_argument('--max_length', default=100, type=int,
 
 
 def main(args):
+    time_stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     if args.evaluate:
         args.results_dir = '/tmp'
     if args.save is '':
-        args.save = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        args.save = time_stamp
     save_path = os.path.join(args.results_dir, args.save)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    setup_logging(os.path.join(save_path, 'log.txt'))
-    results_file = os.path.join(save_path, 'results.%s')
-    results = ResultsLog(results_file % 'csv', results_file % 'html')
+    setup_logging(os.path.join(save_path, 'log_%s.txt' % time_stamp))
 
     logging.info("saving to %s", save_path)
     logging.debug("run arguments: %s", args)

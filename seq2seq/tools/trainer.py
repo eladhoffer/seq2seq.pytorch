@@ -1,17 +1,18 @@
+import os
 import time
 import logging
 from itertools import chain, cycle
 from copy import deepcopy
 import torch
 import torch.nn as nn
-import torch.optim
-import torch.utils.data
 from torch.nn.parallel import DataParallel
 from torch.autograd import Variable
 from torch.nn.utils import clip_grad_norm
 import shutil
 import math
-from .utils import *
+from .utils.log import ResultsLog
+from .utils.optim import OptimRegime
+from .utils.meters import AverageMeter
 from .config import PAD
 from torch.nn.utils.rnn import PackedSequence
 
@@ -57,15 +58,12 @@ class Seq2SeqTrainer(object):
         self.criterion = criterion or nn.CrossEntropyLoss(
             size_average=False, ignore_index=PAD)
 
-        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.1)
+        self.optimizer = OptimRegime(self.model.parameters(), regime=regime)
         self.grad_clip = grad_clip
         self.embedding_grad_clip = embedding_grad_clip
         self.epoch = 0
         self.training_steps = 0
         self.save_info = save_info
-
-        self.regime = regime
-        self.current_regime_phase = None
         self.cuda = cuda
         self.print_freq = print_freq
         self.eval_freq = eval_freq
@@ -86,61 +84,6 @@ class Seq2SeqTrainer(object):
     @property
     def batch_first(self):
         return getattr(self.model.decoder, 'batch_first', False)
-
-    def adjust_optimizer(self, epoch, total_steps):
-        """Reconfigures the optimizer according to setting dict"""
-        if self.regime is None:
-            return
-        update_optimizer = False
-        if self.current_regime_phase is None:
-            update_optimizer = True
-            setting = {}
-            # Find the first entry where the epoch is smallest than current
-            for regime_phase, regime_setting in enumerate(self.regime):
-                start_epoch = regime_setting.get('epoch', 0)
-                start_step = regime_setting.get('step', 0)
-                if epoch >= start_epoch or total_steps >= start_step:
-                    self.current_regime_phase = regime_phase
-                    break
-        if len(self.regime) > self.current_regime_phase + 1:
-            next_phase = self.current_regime_phase + 1
-            # Any more regime steps?
-            start_epoch = self.regime[next_phase].get('epoch', float('inf'))
-            start_step = self.regime[next_phase].get('step', float('inf'))
-            if epoch >= start_epoch or total_steps >= start_step:
-                self.current_regime_phase = next_phase
-                update_optimizer = True
-
-        setting = deepcopy(self.regime[self.current_regime_phase])
-
-        if 'lr_decay_rate' in setting and 'lr' in setting:
-            decay_steps = setting.get('lr_decay_steps', 100)
-            if total_steps % decay_steps == 0:
-                decay_rate = setting['lr_decay_rate']
-                setting['lr'] *= decay_rate ** (total_steps / decay_steps)
-                update_optimizer = True
-        elif 'step_lambda' in setting:
-            setting = eval(setting['step_lambda'])(total_steps)
-            update_optimizer = True
-        elif 'epoch_lambda' in setting:
-            setting = eval(setting['epoch_lambda'])(epoch)
-            update_optimizer = True
-
-        if update_optimizer:
-            if 'optimizer' in setting:
-                optim_method = torch.optim.__dict__[setting['optimizer']]
-                if not isinstance(self.optimizer, optim_method):
-                    self.optimizer = optim_method(self.optimizer.param_groups)
-                    logging.debug('OPTIMIZER - setting method = %s' %
-                                  setting['optimizer'])
-            for param_group in self.optimizer.param_groups:
-                for key in param_group.keys():
-                    if key in setting:
-                        new_val = setting[key]
-                        if new_val != param_group[key]:
-                            logging.debug('OPTIMIZER - setting %s = %s' %
-                                          (key, setting[key]))
-                            param_group[key] = setting[key]
 
     def iterate(self, src, target, training=True):
         src, src_length = src
@@ -213,7 +156,7 @@ class Seq2SeqTrainer(object):
                 self.epoch += 1. / len(data_loader)
                 self.training_steps += 1
                 # update optimizer according to epoch and steps
-                self.adjust_optimizer(self.epoch, self.training_steps)
+                self.optimizer.update(self.epoch, self.training_steps)
 
             # do a train/evaluate iteration
             loss, num_words = self.iterate(src, target, training=training)

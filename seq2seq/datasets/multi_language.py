@@ -7,7 +7,7 @@ from collections import OrderedDict
 from .text import LinedTextDataset
 from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
 from seq2seq.tools.config import *
-from seq2seq.tools.utils import batch_sequences
+from seq2seq.tools import batch_sequences
 
 
 def create_padded_batch(max_length=100, batch_first=False, sort=False, pack=False):

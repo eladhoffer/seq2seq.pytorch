@@ -14,6 +14,7 @@ python main.py \
                                'attention': {'mode': 'bahdanau', 'normalize': True}}}" \
   --data_config "{'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
   --b 64 \
+  --max_length 50 \
   --pack_encoder_inputs \
   --trainer Seq2SeqTrainer \
   --optimization_config "[{'epoch': 0, 'optimizer': 'Adam', 'lr': 5e-4},  \

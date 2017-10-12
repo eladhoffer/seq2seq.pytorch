@@ -2,7 +2,7 @@ from copy import copy
 import codecs
 import torch
 from torch.utils.data import Dataset
-from seq2seq.tools.utils import batch_sequences
+from seq2seq.tools import batch_sequences
 
 
 def list_line_locations(filename):

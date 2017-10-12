@@ -7,10 +7,10 @@ from torch.nn.utils.rnn import pack_padded_sequence
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 from PIL import ImageFile
-
 from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
+from seq2seq.tools import batch_sequences
 from seq2seq.tools.config import EOS, BOS, PAD, LANGUAGE_TOKENS
-from seq2seq.tools.utils import batch_sequences
+
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 

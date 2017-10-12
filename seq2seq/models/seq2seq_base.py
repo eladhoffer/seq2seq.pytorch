@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn.parallel import data_parallel
 from torch.autograd import Variable
 from torch.nn.functional import log_softmax
-from seq2seq.tools.utils import batch_sequences
+from seq2seq.tools import batch_sequences
 from .modules.state import State
 
 
