@@ -97,13 +97,13 @@ class SequenceGenerator(object):
                  eos_id=EOS,
                  beam_size=3,
                  max_sequence_length=50,
-                 batch_first=False,
                  get_attention=False,
                  length_normalization_factor=0.0):
         """Initializes the generator.
 
         Args:
           model: recurrent model, with inputs: (input, state) and outputs len(vocab) values
+          eos_id: the token number symobling the end of sequence
           beam_size: Beam size to use when generating sequences.
           max_sequence_length: The maximum sequence length before stopping the search.
           length_normalization_factor: If != 0, a number x such that sequences are
@@ -122,10 +122,13 @@ class SequenceGenerator(object):
         """Runs beam search sequence generation on a single image.
 
         Args:
-          initial_state: An initial state for the recurrent model
+          initial_input: An initial input for the model -
+                         list of batch size holding the first input for every entry.
+          initial_state (optional): An initial state for the model -
+                         list of batch size holding the current state for every entry.
 
         Returns:
-          A list of Sequence sorted by descending score.
+          A list of batch size, each the most likely sequence from the possible beam_size candidates.
         """
         batch_size = len(initial_input)
         partial_sequences = [TopN(self.beam_size) for _ in range(batch_size)]
@@ -137,6 +140,8 @@ class SequenceGenerator(object):
             feed_all_timesteps=True,
             get_attention=self.get_attention)
         for b in range(batch_size):
+            # Create first beam_size candidate hypotheses for each entry in
+            # batch
             for k in range(self.beam_size):
                 seq = Sequence(
                     sentence=initial_input[b] + [words[b][k]],
@@ -151,14 +156,21 @@ class SequenceGenerator(object):
             partial_sequences_list = [p.extract() for p in partial_sequences]
             for p in partial_sequences:
                 p.reset()
+
+            # Keep a flattened list of parial hypotheses, to easily feed
+            # through a model as whole batch
             flattened_partial = [
                 s for sub_partial in partial_sequences_list for s in sub_partial]
 
             input_feed = [c.sentence for c in flattened_partial]
             state_feed = [c.state for c in flattened_partial]
             if len(input_feed) == 0:
-                # We have run out of partial candidates; happens when beam_size=1
+                # We have run out of partial candidates; happens when
+                # beam_size=1
                 break
+
+            # Feed current hypotheses through the model, and recieve new outputs and states
+            # logprobs are needed to rank hypotheses
             words, logprobs, new_states \
                 = self.model.generate(
                     input_feed, state_feed,
@@ -166,10 +178,13 @@ class SequenceGenerator(object):
 
             idx = 0
             for b in range(batch_size):
+                # For every entry in batch, find and trim to the most likely
+                # beam_size hypotheses
                 for partial in partial_sequences_list[b]:
                     state = new_states[idx]
                     if self.get_attention:
-                        attention = partial.attention + [new_states[idx].attention_score]
+                        attention = partial.attention + \
+                            [new_states[idx].attention_score]
                     else:
                         attention = None
                     for k in range(self.beam_size):
