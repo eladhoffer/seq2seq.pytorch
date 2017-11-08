@@ -5,7 +5,7 @@ import string
 import codecs
 import logging
 import sys
-from collections import Counter
+from collections import Counter, OrderedDict
 import torch
 from .config import *
 
@@ -13,6 +13,10 @@ sys.path.append(os.path.abspath(os.path.join(
     os.path.dirname(__file__), './subword-nmt')))
 import learn_bpe
 import apply_bpe
+
+
+class OrderedCounter(Counter, OrderedDict):
+    pass
 
 
 class Tokenizer(object):
@@ -53,7 +57,7 @@ class Tokenizer(object):
         return str(line).lower().translate(string.punctuation).strip().split()
 
     def get_vocab(self,  item_list, from_filenames=True, limit=None):
-        vocab = Counter()
+        vocab = OrderedCounter()
         if from_filenames:
             filenames = item_list
             # get combined vocabulary of all input files
@@ -76,7 +80,7 @@ class Tokenizer(object):
                     f.write("{0} {1}\n".format(key, freq))
 
     def load_vocab(self, vocab_filename, limit=None):
-        vocab = Counter()
+        vocab = OrderedCounter()
         with codecs.open(vocab_filename, encoding='UTF-8') as f:
             for line in f:
                 word, count = line.strip().split()
@@ -131,13 +135,13 @@ class BPETokenizer(Tokenizer):
                 filenames = [filenames]
 
             # get combined vocabulary of all input files
-            full_vocab = Counter()
+            full_vocab = OrderedCounter()
             for fname in filenames:
                 with codecs.open(fname, encoding='UTF-8') as f:
                     full_vocab += learn_bpe.get_vocabulary(f)
         else:
             # get combined vocabulary of all input texts
-            full_vocab = Counter()
+            full_vocab = OrderedCounter()
             full_vocab += learn_bpe.get_vocabulary(item_list)
 
         vocab_list = ['{0} {1}'.format(key, freq)
