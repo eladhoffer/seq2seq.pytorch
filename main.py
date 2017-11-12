@@ -74,10 +74,14 @@ parser.add_argument('--grad_clip', default=5., type=float,
                     help='maximum grad norm value')
 parser.add_argument('--embedding_grad_clip', default=None, type=float,
                     help='maximum embedding grad norm value')
+parser.add_argument('--label_smoothing', default=0, type=float,
+                    help='label smoothing coefficient - default 0')
 parser.add_argument('--uniform_init', default=None, type=float,
                     help='if value not None - init weights to U(-value,value)')
 parser.add_argument('--max_length', default=100, type=int,
                     help='maximum sequence length')
+parser.add_argument('--max_tokens', default=None, type=int,
+                    help='maximum sequence tokens')
 
 
 def main(args):
@@ -133,19 +137,24 @@ def main(args):
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          batch_first=batch_first,
                                          shuffle=True,
+                                         augment=True,
                                          pack=args.pack_encoder_inputs,
                                          max_length=args.max_length,
+                                         max_tokens=args.max_tokens,
                                          num_workers=args.workers)
     val_loader = val_data.get_loader(batch_size=args.batch_size,
                                      batch_first=batch_first,
                                      shuffle=False,
+                                     augment=False,
                                      pack=args.pack_encoder_inputs,
                                      max_length=args.max_length,
+                                     max_tokens=args.max_tokens,
                                      num_workers=args.workers)
 
     trainer_options = dict(
         grad_clip=args.grad_clip,
         embedding_grad_clip=args.embedding_grad_clip,
+        label_smoothing=args.label_smoothing,
         save_path=save_path,
         save_info={'tokenizers': train_data.tokenizers,
                    'config': args},

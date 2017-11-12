@@ -42,15 +42,17 @@ def imagenet_transform(scale_size=256, input_size=224, train=True, allow_var_siz
         ])
 
 
-def create_padded_caption_batch(max_length=100, batch_first=False, sort=False, pack=False):
+def create_padded_caption_batch(max_length=100, max_tokens=None, batch_first=False,
+                                sort=False, pack=False, augment=False):
     def collate(img_seq_tuple):
         if sort or pack:  # packing requires a sorted batch by length
             img_seq_tuple.sort(key=lambda p: len(p[1]), reverse=True)
         imgs, seqs = zip(*img_seq_tuple)
         imgs = torch.cat([img.unsqueeze(0) for img in imgs], 0)
         seq_tensor = batch_sequences(seqs, max_length=max_length,
+                                     max_tokens=max_tokens,
                                      batch_first=batch_first,
-                                     sort=False, pack=pack)
+                                     sort=False, pack=pack, augment=augment)
         return (imgs, seq_tensor)
     return collate
 
@@ -167,9 +169,11 @@ class CocoCaptions(object):
         return len(self.data)
 
     def get_loader(self, batch_size=1, shuffle=False, pack=False, sampler=None, num_workers=0,
-                   max_length=100, batch_first=False, pin_memory=False, drop_last=False):
+                   max_length=100, max_tokens=None, batch_first=False,
+                   pin_memory=False, drop_last=False, augment=False):
         collate_fn = create_padded_caption_batch(
-            max_length=max_length, pack=pack, batch_first=batch_first)
+            max_length=max_length, max_tokens=max_tokens,
+            pack=pack, batch_first=batch_first, augment=augment)
         return torch.utils.data.DataLoader(self,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,

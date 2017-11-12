@@ -1,17 +1,13 @@
-from copy import deepcopy
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-from torch.nn.utils.rnn import pad_packed_sequence as unpack
-from torch.nn.utils.rnn import pack_padded_sequence as pack
-from torch.nn.utils.rnn import PackedSequence
 from .attention import AttentionLayer
-from seq2seq.tools.config import PAD
+from .weight_drop import WeightDrop
 
 
 def Recurrent(mode, input_size, hidden_size,
               num_layers=1, bias=True, batch_first=False,
-              dropout=0, bidirectional=False, residual=False,
+              dropout=0, weight_drop=0, bidirectional=False, residual=False,
               zoneout=None, attention_layer=None, forget_bias=None):
     params = dict(input_size=input_size, hidden_size=hidden_size,
                   num_layers=num_layers, bias=bias, batch_first=batch_first,
@@ -182,14 +178,20 @@ class StackedsAttentionCell(StackedCell):
 
     def forward(self, input_with_context, hidden, get_attention=False):
         inputs, context = input_with_context
+        if isinstance(context, tuple):
+            context_keys, context_values = context
+        else:
+            context_keys = context_values = context
         hidden_cell, hidden_attention = hidden
         inputs = torch.cat([inputs, hidden_attention], inputs.dim() - 1)
         output_cell, hidden_cell = super(
             StackedsAttentionCell, self).forward(inputs, hidden_cell)
-        output, score = self.attention(output_cell, context)
+        output, score = self.attention(
+            output_cell, context_keys, context_values)
         if get_attention:
             return output, (hidden_cell, output), score
         else:
+            del score
             return output, (hidden_cell, output)
 
 
@@ -254,7 +256,8 @@ class TimeRecurrentCell(nn.Module):
             if self.lstm:
                 hidden = (hidden, Variable(h0, requires_grad=False))
             if self.with_attention:
-                a0 = zero.view(1, 1).expand(batch_size, hidden_size)
+                attn_size = self.cell.attention.output_size
+                a0 = zero.view(1, 1).expand(batch_size, attn_size)
                 hidden = (hidden, Variable(a0, requires_grad=False))
 
         outputs = []
@@ -287,21 +290,23 @@ class TimeRecurrentCell(nn.Module):
 class RecurrentAttention(nn.Module):
 
     def __init__(self, input_size, context_size, hidden_size,
-                 num_layers=1, bias=True, batch_first=False, dropout=0, concat_attention=True,
-                 num_pre_attention_layers=None, mode='LSTM', residual=False,
-                 context_transform=None, attention=None, forget_bias=None):
+                 num_layers=1, bias=True, batch_first=False, dropout=0,
+                 concat_attention=True, num_pre_attention_layers=None,
+                 mode='LSTM', residual=False, attention=None, forget_bias=None):
         super(RecurrentAttention, self).__init__()
 
         self.hidden_size = hidden_size
         self.layers = num_layers
         self.concat_attention = concat_attention
         self.batch_first = batch_first
-        if context_transform is not None:  # additional transform on context before attention
-            self.context_transform = nn.Linear(context_size, context_transform)
-            context_size = context_transform
+        if isinstance(context_size, tuple):
+            context_key_size, context_value_size = context_size
+        else:
+            context_key_size = context_value_size = context_size
 
         attention = attention or {}
-        attention['key_size'] = context_size
+        attention['key_size'] = context_key_size
+        attention['value_size'] = context_value_size
         attention['query_size'] = hidden_size
         attention['batch_first'] = batch_first
         self.attn = AttentionLayer(**attention)
@@ -310,6 +315,7 @@ class RecurrentAttention(nn.Module):
         if concat_attention and num_pre_attention_layers > 0:
             input_size = input_size + self.attn.output_size
             embedd_attn = self.attn
+            del self.attn  # don't include attention layer twice in model
         else:
             embedd_attn = None
 
@@ -325,8 +331,10 @@ class RecurrentAttention(nn.Module):
                                         dropout=dropout, forget_bias=forget_bias)
 
     def forward(self, inputs, context, hidden=None, mask_attention=None, get_attention=False):
-        if hasattr(self, 'context_transform'):
-            context = self.context_transform(context)
+        if isinstance(context, tuple):
+            context_keys, context_values = context
+        else:
+            context_keys = context_values = context
         if hasattr(self, 'rnn_no_att'):
             if hidden is None:
                 hidden = [None] * 2
@@ -335,9 +343,9 @@ class RecurrentAttention(nn.Module):
         if not self.concat_attention:
             outputs, hidden = self.rnn_att(inputs, hidden)
             self.attn.set_mask(mask_attention)
-            outputs, attentions = self.attn(outputs, context)
+            outputs, attentions = self.attn(
+                outputs, context_keys, context_values)
         else:
-
             out = self.rnn_att(inputs, hidden, context,
                                mask_attention=mask_attention,
                                get_attention=get_attention)

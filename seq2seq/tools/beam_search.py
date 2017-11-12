@@ -98,7 +98,8 @@ class SequenceGenerator(object):
                  beam_size=3,
                  max_sequence_length=50,
                  get_attention=False,
-                 length_normalization_factor=0.0):
+                 length_normalization_factor=0.0,
+                 length_normalization_const=5.):
         """Initializes the generator.
 
         Args:
@@ -110,12 +111,15 @@ class SequenceGenerator(object):
             scored by logprob/length^x, rather than logprob. This changes the
             relative scores of sequences depending on their lengths. For example, if
             x > 0 then longer sequences will be favored.
+            alpha in: https://arxiv.org/abs/1609.08144
+          length_normalization_const: 5 in https://arxiv.org/abs/1609.08144
         """
         self.model = model
         self.eos_id = eos_id
         self.beam_size = beam_size
         self.max_sequence_length = max_sequence_length
         self.length_normalization_factor = length_normalization_factor
+        self.length_normalization_const = length_normalization_const
         self.get_attention = get_attention
 
     def beam_search(self, initial_input, initial_state=None):
@@ -174,7 +178,7 @@ class SequenceGenerator(object):
             words, logprobs, new_states \
                 = self.model.generate(
                     input_feed, state_feed,
-                    k=self.beam_size, get_attention=self.get_attention)
+                    k=self.beam_size + 1, get_attention=self.get_attention)
 
             idx = 0
             for b in range(batch_size):
@@ -187,18 +191,25 @@ class SequenceGenerator(object):
                             [new_states[idx].attention_score]
                     else:
                         attention = None
-                    for k in range(self.beam_size):
+                    k = 0
+                    num_hyp = 0
+                    while num_hyp < self.beam_size:
                         w = words[idx][k]
                         sentence = partial.sentence + [w]
                         logprob = partial.logprob + logprobs[idx][k]
                         score = logprob
+                        k += 1
+                        num_hyp += 1
 
                         if w == self.eos_id:
                             if self.length_normalization_factor > 0:
-                                score /= len(sentence)**self.length_normalization_factor
+                                L = self.length_normalization_const
+                                length_penalty = (L + len(sentence)) / (L + 1)
+                                score /= length_penalty ** self.length_normalization_factor
                             beam = Sequence(sentence, state,
                                             logprob, score, attention)
                             complete_sequences[b].push(beam)
+                            num_hyp -= 1  # we can fit another hypotheses as this one is over
                         else:
                             beam = Sequence(sentence, state,
                                             logprob, score, attention)

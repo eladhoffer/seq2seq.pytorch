@@ -1,13 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import argparse
-import os
 import codecs
 from ast import literal_eval
 import torch
-import torch.backends.cudnn as cudnn
-from seq2seq import models
-from seq2seq.tools.inference import Translator
+from seq2seq.tools.inference import Translator, average_models
 
 parser = argparse.ArgumentParser(
     description='Translate a file using pretrained model')
@@ -29,11 +26,15 @@ parser.add_argument('--type', default='torch.cuda.FloatTensor',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
 parser.add_argument('--verbose', action='store_true',
                     help='print translations on screen')
-                    
+
 if __name__ == '__main__':
     args = parser.parse_args()
     args.devices = literal_eval(args.devices)
-    if 'cuda' in args.type:
+    try:
+        args.model = literal_eval(args.model)
+    except:
+        pass
+    if 'cuda' in args.type and torch.cuda.is_available():
         cuda = True
         main_gpu = 0
         if isinstance(args.devices, tuple):
@@ -43,17 +44,16 @@ if __name__ == '__main__':
         elif isinstance(args.devices, dict):
             main_gpu = args.devices.get('input', 0)
         torch.cuda.set_device(main_gpu)
-        cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = True
     else:
         cuda = False
-    checkpoint = torch.load(args.model)
-    config = checkpoint['config']
-    model = getattr(models, config.model)(**config.model_config)
-    model.load_state_dict(checkpoint['state_dict'])
-    src_tok, target_tok = checkpoint['tokenizers'].values()
-    translation_model = Translator(model,
-                                   src_tok=src_tok,
-                                   target_tok=target_tok,
+    if isinstance(args.model, tuple):  # average models
+        checkpoint = average_models(args.model)
+    else:
+        checkpoint = torch.load(
+            args.model, map_location=lambda storage, loc: storage)
+
+    translation_model = Translator(checkpoint=checkpoint,
                                    beam_size=args.beam_size,
                                    max_sequence_length=args.max_sequence_length,
                                    length_normalization_factor=args.length_normalization,

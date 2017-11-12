@@ -10,7 +10,9 @@ from seq2seq.tools.config import *
 from seq2seq.tools import batch_sequences
 
 
-def create_padded_batch(max_length=100, batch_first=False, sort=False, pack=False):
+def create_padded_batch(max_length=100, max_tokens=None,
+                        batch_first=False, sort=False,
+                        pack=False, augment=False):
     def collate(seqs, sort=sort, pack=pack):
         if not torch.is_tensor(seqs[0]):
             if sort or pack:  # packing requires a sorted batch by length
@@ -19,8 +21,10 @@ def create_padded_batch(max_length=100, batch_first=False, sort=False, pack=Fals
             # TODO: for now, just the first input will be packed
             return tuple([collate(s, sort=False, pack=pack and (i == 0))
                           for i, s in enumerate(zip(*seqs))])
-        return batch_sequences(seqs, max_length=max_length, batch_first=batch_first,
-                               sort=False, pack=pack)
+        return batch_sequences(seqs, max_length=max_length,
+                               max_tokens=max_tokens,
+                               batch_first=batch_first,
+                               sort=False, pack=pack, augment=augment)
     return collate
 
 
@@ -148,12 +152,13 @@ class MultiLanguageDataset(object):
     def __len__(self):
         return len(self.datasets[self.languages[0]])
 
-    def get_loader(self, languages=None, sort=False, pack=False,
-                   batch_size=1, shuffle=False, sampler=None, num_workers=0,
-                   max_length=100, batch_first=False, pin_memory=False, drop_last=False):
+    def get_loader(self, batch_size=1, shuffle=False, sort=False, pack=False,
+                   augment=False, languages=None, sampler=None, num_workers=0,
+                   max_length=100, max_tokens=None, batch_first=False,
+                   pin_memory=False, drop_last=False):
         collate_fn = create_padded_batch(
-            max_length=max_length, batch_first=batch_first,
-            sort=sort, pack=pack)
+            max_length=max_length, max_tokens=max_tokens, batch_first=batch_first,
+            sort=sort, pack=pack, augment=augment)
         languages = languages or self.languages
         return torch.utils.data.DataLoader(self,
                                            batch_size=batch_size,

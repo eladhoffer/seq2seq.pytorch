@@ -13,6 +13,8 @@ import math
 from .utils.log import ResultsLog
 from .utils.optim import OptimRegime
 from .utils.meters import AverageMeter
+from .utils.cross_entropy import CrossEntropyLoss
+
 from .config import PAD
 from torch.nn.utils.rnn import PackedSequence
 
@@ -42,6 +44,7 @@ class Seq2SeqTrainer(object):
 
     def __init__(self, model, regime,
                  criterion=None,
+                 label_smoothing=0,
                  print_freq=10,
                  eval_freq=1000,
                  save_freq=1000,
@@ -55,8 +58,8 @@ class Seq2SeqTrainer(object):
                  cuda=True):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
-        self.criterion = criterion or nn.CrossEntropyLoss(
-            size_average=False, ignore_index=PAD)
+        self.criterion = criterion or CrossEntropyLoss(
+            size_average=False, ignore_index=PAD, smooth_eps=label_smoothing)
 
         self.optimizer = OptimRegime(self.model.parameters(), regime=regime)
         self.grad_clip = grad_clip
@@ -144,6 +147,7 @@ class Seq2SeqTrainer(object):
         num_iterations = num_iterations or len(data_loader) - 1
         batch_time = AverageMeter()
         data_time = AverageMeter()
+        tok_time = AverageMeter()
         losses = AverageMeter()
         perplexity = AverageMeter()
 
@@ -166,7 +170,10 @@ class Seq2SeqTrainer(object):
             perplexity.update(math.exp(loss), num_words)
 
             # measure elapsed time
-            batch_time.update(time.time() - end)
+            elapsed = time.time() - end
+            batch_time.update(elapsed)
+            tok_time.update(num_words / elapsed, num_words)
+
             end = time.time()
             last_iteration = (i == len(data_loader) - 1)
             if i > 0 or last_iteration:
@@ -174,12 +181,13 @@ class Seq2SeqTrainer(object):
                     logging.info('{phase} - Epoch: [{0}][{1}/{2}]\t'
                                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                                 'Tok/sec {tok_time.val:.3f} ({tok_time.avg:.3f})\t'
                                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                                  'Perplexity {perplexity.val:.4f} ({perplexity.avg:.4f})'.format(
                                      int(self.epoch), i, len(data_loader),
                                      phase='TRAINING' if training else 'EVALUATING',
-                                     batch_time=batch_time,
-                                     data_time=data_time, loss=losses, perplexity=perplexity))
+                                     batch_time=batch_time, data_time=data_time, tok_time=tok_time,
+                                     loss=losses, perplexity=perplexity))
                 if training and (i % self.save_freq == 0 or last_iteration):
                     self.save(identifier=next(counter))
                 if i % num_iterations == 0 or last_iteration:
@@ -256,7 +264,6 @@ class Seq2SeqTrainer(object):
             'training_steps': self.training_steps,
             'state_dict': self.model.state_dict(),
             'perplexity': getattr(self, 'perplexity', None),
-            'regime': self.regime
         }
         state = dict(list(state.items()) + list(self.save_info.items()))
         identifier = identifier or ''

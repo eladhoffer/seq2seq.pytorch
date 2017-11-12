@@ -55,11 +55,12 @@ class EncoderBlock(nn.Module):
         x = inputs
         res = x
         x, _ = self.attention(x, x, x)
-        x = self.lnorm1(res + self.dropout(x))
+        x = self.dropout(x).add_(res)
+        x = self.lnorm1(x)
         res = x
         x = self.fc(x)
-        x = self.lnorm2(res + self.dropout(x))
-
+        x = self.dropout(x).add_(res)
+        x = self.lnorm2(x)
         return x
 
 
@@ -91,13 +92,16 @@ class DecoderBlock(nn.Module):
         x = inputs
         res = x
         x, _ = self.masked_attention(x, x, x)
-        x = self.lnorm1(res + self.dropout(x))
+        x = self.dropout(x).add_(res)
+        x = self.lnorm1(x)
         res = x
         x, attn_enc = self.attention(x, context, context)
-        x = self.lnorm2(res + self.dropout(x))
+        x = self.dropout(x).add_(res)
+        x = self.lnorm2(x)
         res = x
         x = self.fc(x)
-        x = self.lnorm3(res + self.dropout(x))
+        x = self.dropout(x).add_(res)
+        x = self.lnorm3(x)
 
         return x, attn_enc
 
@@ -115,18 +119,18 @@ class TransformerAttentionEncoder(nn.Module):
         self.embedder = nn.Embedding(
             vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout, inplace=True)
         self.blocks = nn.ModuleList([EncoderBlock(hidden_size, num_heads, inner_linear, dropout)
                                      for _ in range(num_layers)
                                      ])
 
     def forward(self, inputs, hidden=None):
         if self.mask_symbol is not None:
-            padding_mask = inputs.data.eq(self.mask_symbol)
+            padding_mask = inputs.eq(self.mask_symbol)
         else:
             padding_mask = None
-        x = self.embedder(inputs) * self.scale_embedding
-        x = x + Variable(positional_embedding(x), requires_grad=False)
+        x = self.embedder(inputs).mul_(self.scale_embedding)
+        x.add_(Variable(positional_embedding(x), requires_grad=False))
         x = self.dropout(x)
 
         for block in self.blocks:
@@ -149,7 +153,7 @@ class TransformerAttentionDecoder(nn.Module):
         self.embedder = nn.Embedding(
             vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout, inplace=True)
         self.blocks = nn.ModuleList([DecoderBlock(hidden_size, num_heads, inner_linear, dropout)
                                      for _ in range(num_layers)
                                      ])
@@ -160,11 +164,11 @@ class TransformerAttentionDecoder(nn.Module):
     def forward(self, inputs, state, get_attention=False):
         context = state.context
         if self.mask_symbol is not None:
-            padding_mask = inputs.data.eq(self.mask_symbol)
+            padding_mask = inputs.eq(self.mask_symbol)
         else:
             padding_mask = None
-        x = self.embedder(inputs) * self.scale_embedding
-        x = x + Variable(positional_embedding(x), requires_grad=False)
+        x = self.embedder(inputs).mul_(self.scale_embedding)
+        x.add_(Variable(positional_embedding(x), requires_grad=False))
         x = self.dropout(x)
 
         attention_scores = []
@@ -173,6 +177,8 @@ class TransformerAttentionDecoder(nn.Module):
             x, attn_enc = block(x, context.outputs)
             if get_attention:
                 attention_scores.append(attn_enc)
+            else:
+                del attn_enc
         x = self.classifier(x)
         if get_attention:
             state.attention_score = attention_scores

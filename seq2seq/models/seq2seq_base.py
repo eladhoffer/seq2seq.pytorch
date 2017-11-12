@@ -79,8 +79,9 @@ class Seq2Seq(nn.Module):
         logits, new_states = self.decode(
             inputs_var, states, get_attention=get_attention)
         # use only last prediction
-        logits = logits.select(time_dim, -1).contiguous()
-        logprobs = log_softmax(logits.view(-1, logits.size(-1)))
+        logits = logits.select(
+            time_dim, logits.size(time_dim) - 1).contiguous()
+        logprobs = log_softmax(logits, dim=1)
         logprobs, words = logprobs.data.topk(k, 1)
         new_states_list = [new_states[i] for i in range(len(input_list))]
         return words, logprobs, new_states_list

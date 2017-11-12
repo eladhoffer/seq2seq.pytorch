@@ -5,33 +5,60 @@ from torch.autograd import Variable
 from .config import EOS, BOS, LANGUAGE_TOKENS
 from .beam_search import SequenceGenerator
 from torch.nn.functional import adaptive_avg_pool2d
-from .utils import batch_sequences
-from .quantize import dequantize_model
+from seq2seq import models
+from seq2seq.tools import batch_sequences
+from .utils.quantize import dequantize_model
+
+
+def average_models(checkpoint_filenames):
+    averaged = {}
+    scale = 1. / len(checkpoint_filenames)
+    print('Averaging %s models' % len(checkpoint_filenames))
+    for m in checkpoint_filenames:
+        checkpoint = torch.load(
+            m, map_location=lambda storage, loc: storage)
+        for n, p in checkpoint['state_dict'].items():
+            if n in averaged:
+                averaged[n].add_(scale * p)
+            else:
+                averaged[n] = scale * p
+    checkpoint['state_dict'] = averaged
+    return checkpoint
 
 
 class Translator(object):
 
-    def __init__(self, model, src_tok, target_tok,
+    def __init__(self, checkpoint=None,
+                 model=None, src_tok=None, target_tok=None,
                  beam_size=5,
                  length_normalization_factor=0,
                  max_sequence_length=50,
                  get_attention=False,
-                 cuda=False):
-        self.model = model
-        self.src_tok = src_tok
-        self.target_tok = target_tok
+                 cuda=None):
+        assert checkpoint is not None or \
+            model is not None and src_tok is not None and target_tok is not None, \
+            "supply either a checkpoint dictionary or model and tokenizers"
+        if checkpoint is not None:
+            config = checkpoint['config']
+            self.model = getattr(models, config.model)(**config.model_config)
+            self.model.load_state_dict(checkpoint['state_dict'])
+            self.src_tok, self.target_tok = checkpoint['tokenizers'].values()
+        else:
+            self.model = model
+            self.src_tok = src_tok
+            self.target_tok = target_tok
         self.insert_target_start = [BOS]
         self.insert_src_start = [BOS]
         self.insert_src_end = [EOS]
         self.get_attention = get_attention
-        self.cuda = cuda
+        self.cuda = torch.cuda.is_available() if cuda is None else cuda
         if getattr(model, 'quantized', False):
             dequantize_model(model)
         if self.cuda:
-            model.cuda()
+            self.model.cuda()
         else:
-            model.cpu()
-        model.eval()
+            self.model.cpu()
+        self.model.eval()
         self.generator = SequenceGenerator(
             model=self.model,
             beam_size=beam_size,

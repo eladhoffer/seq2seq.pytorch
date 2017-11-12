@@ -13,7 +13,10 @@ python main.py \
   --model Transformer \
   --model_config "{'num_layers': 6, 'hidden_size': 512, 'num_heads': 8, 'inner_linear': 2048}" \
   --data_config "{'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
-  --b 32 \
+  --b 128 \
+  --max_length 50 \
+  --devices 0 \
+  --label_smoothing 0.1 \
   --grad_clip 0 \
   --trainer Seq2SeqTrainer \
   --optimization_config "[{'step_lambda':
