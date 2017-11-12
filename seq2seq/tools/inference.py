@@ -7,7 +7,6 @@ from .beam_search import SequenceGenerator
 from torch.nn.functional import adaptive_avg_pool2d
 from seq2seq import models
 from seq2seq.tools import batch_sequences
-from .utils.quantize import dequantize_model
 
 
 def average_models(checkpoint_filenames):
@@ -52,8 +51,6 @@ class Translator(object):
         self.insert_src_end = [EOS]
         self.get_attention = get_attention
         self.cuda = torch.cuda.is_available() if cuda is None else cuda
-        if getattr(model, 'quantized', False):
-            dequantize_model(model)
         if self.cuda:
             self.model.cuda()
         else:
