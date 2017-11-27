@@ -127,8 +127,18 @@ class Seq2SeqTrainer(object):
             # compute gradient and do SGD step
             self.optimizer.zero_grad()
             loss.backward()
-            if self.grad_clip is not None and self.grad_clip > 0:
-                clip_grad_norm(self.model.parameters(), self.grad_clip)
+            if self.grad_clip is not None:
+                if isinstance(self.grad_clip, dict):
+                    clip_encoder = self.grad_clip.get('encoder', 0)
+                    clip_decoder = self.grad_clip.get('decoder', 0)
+                    if clip_encoder > 0:
+                        clip_grad_norm(
+                            self.model.encoder.parameters(), clip_encoder)
+                    if clip_decoder > 0:
+                        clip_grad_norm(
+                            self.model.decoder.parameters(), clip_decoder)
+                elif self.grad_clip > 0:  # grad_clip is a number
+                    clip_grad_norm(self.model.parameters(), self.grad_clip)
             if self.embedding_grad_clip is not None and self.embedding_grad_clip > 0:
                 if hasattr(self.model.encoder, 'embedder'):
                     clip_grad_norm(self.model.encoder.embedder.parameters(),

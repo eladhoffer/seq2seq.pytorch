@@ -70,7 +70,7 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
                     help='evaluate model FILE on validation set')
-parser.add_argument('--grad_clip', default=5., type=float,
+parser.add_argument('--grad_clip', default='5.', type=str,
                     help='maximum grad norm value')
 parser.add_argument('--embedding_grad_clip', default=None, type=float,
                     help='maximum embedding grad norm value')
@@ -113,6 +113,7 @@ def main(args):
 
     dataset = getattr(datasets, args.dataset)
     args.data_config = literal_eval(args.data_config)
+    args.grad_clip = literal_eval(args.grad_clip)
     train_data = dataset(args.dataset_dir, split='train', **args.data_config)
     val_data = dataset(args.dataset_dir, split='dev', **args.data_config)
     src_tok, target_tok = train_data.tokenizers.values()

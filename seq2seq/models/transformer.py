@@ -114,6 +114,7 @@ class TransformerAttentionEncoder(nn.Module):
 
         super(TransformerAttentionEncoder, self).__init__()
         embedding_size = embedding_size or hidden_size
+        self.hidden_size = hidden_size
         self.batch_first = True
         self.mask_symbol = mask_symbol
         self.embedder = nn.Embedding(

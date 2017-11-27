@@ -33,6 +33,7 @@ class RecurrentEncoder(nn.Module):
         num_bidirectional = num_bidirectional or num_layers
         self.embedder = nn.Embedding(vocab_size,
                                      embedding_size,
+                                     sparse=True,
                                      padding_idx=PAD)
         if context_transform is not None:  # additional transform on context before output
             self.context_transform = nn.Linear(hidden_size, context_transform)
@@ -98,6 +99,7 @@ class RecurrentDecoder(nn.Module):
         embedding_size = hidden_size
         self.embedder = nn.Embedding(vocab_size,
                                      embedding_size,
+                                     sparse=True,
                                      padding_idx=PAD)
         self.rnn = Recurrent(mode, embedding_size, self.hidden_size,
                              num_layers=num_layers, bias=bias, forget_bias=forget_bias,
@@ -136,6 +138,7 @@ class RecurrentAttentionDecoder(nn.Module):
         self.batch_first = batch_first
         self.embedder = nn.Embedding(vocab_size,
                                      embedding_size,
+                                     sparse=True,
                                      padding_idx=PAD)
         self.rnn = RecurrentAttention(hidden_size, context_size, hidden_size, num_layers=num_layers,
                                       bias=bias, batch_first=batch_first, dropout=dropout,

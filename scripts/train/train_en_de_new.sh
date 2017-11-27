@@ -3,7 +3,7 @@ DATASET_DIR=${2:-"/media/drive/Datasets/wmt16_de_en"}
 OUTPUT_DIR=${3:-"/media/drive/nmt_results"}
 
 python main.py \
-  --save de_en_wmt16_better \
+  --save de_en_wmt16_new \
   --dataset ${DATASET} \
   --dataset_dir ${DATASET_DIR} \
   --results_dir ${OUTPUT_DIR} \
@@ -16,8 +16,10 @@ python main.py \
   --data_config "{'moses_pretok': True, 'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
   --b 128 \
   --max_length 80 \
-  --devices 1 \
+  --devices 0 \
   --trainer Seq2SeqTrainer \
   --optimization_config "[{'epoch': 0, 'optimizer': 'Adam', 'lr': 1e-3},
+                          {'epoch': 6, 'lr': 5e-4},
                           {'epoch': 8, 'lr':1e-4},
-                          {'epoch': 10, 'lr': 1e-5}]" \
+                          {'epoch': 10, 'lr': 5e-5},
+                          {'epoch': 12, 'lr': 1e-5}]" \

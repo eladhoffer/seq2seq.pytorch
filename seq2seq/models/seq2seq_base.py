@@ -54,9 +54,6 @@ class Seq2Seq(nn.Module):
         return output
 
     def generate(self, input_list, state_list, k=1, feed_all_timesteps=False, get_attention=False):
-        # assert isinstance(input_list, list) or isinstance(input_list, tuple)
-        # assert isinstance(input_list[0], list) or isinstance(
-            # input_list[0], tuple)
 
         view_shape = (-1, 1) if self.decoder.batch_first else (1, -1)
         time_dim = 1 if self.decoder.batch_first else 0
