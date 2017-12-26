@@ -25,7 +25,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
                  tokenizers=None,
                  load_data=True):
 
-        prefix = os.path.join(root, '{}.' + '-'.join(sorted(languages)))
+        prefix = os.path.join(root, '-'.join(sorted(languages)) + '/{}.clean')
         train_prefix = prefix.format('train')
         options = dict(
             prefix=train_prefix,
