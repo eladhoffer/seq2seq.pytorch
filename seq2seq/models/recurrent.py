@@ -23,8 +23,9 @@ def bridge_bidirectional_hidden(hidden):
 class RecurrentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128, embedding_size=None, num_layers=1,
-                 bias=True, batch_first=False, dropout=0, forget_bias=None, context_transform=None,
-                 bidirectional=True, num_bidirectional=None, mode='LSTM', residual=False):
+                 bias=True, batch_first=False, dropout=0, embedding_dropout=0,
+                 forget_bias=None, context_transform=None, bidirectional=True,
+                 num_bidirectional=None, mode='LSTM', residual=False):
         super(RecurrentEncoder, self).__init__()
         self.layers = num_layers
         self.bidirectional = bidirectional
@@ -35,6 +36,7 @@ class RecurrentEncoder(nn.Module):
                                      embedding_size,
                                      sparse=True,
                                      padding_idx=PAD)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
         if context_transform is not None:  # additional transform on context before output
             self.context_transform = nn.Linear(hidden_size, context_transform)
 
@@ -63,17 +65,19 @@ class RecurrentEncoder(nn.Module):
         if isinstance(inputs, PackedSequence):
             # Lengths data is wrapped inside a Variable.
             bsizes = inputs[1]
-            emb = PackedSequence(self.embedder(inputs[0]), bsizes)
+            emb = PackedSequence(self.embedding_dropout(
+                self.embedder(inputs[0])), bsizes)
             # Get padding mask
             time_dim = 1 if self.batch_first else 0
             bsizes = torch.Tensor(bsizes).type_as(inputs[0].data)
             range_batch = torch.arange(0, bsizes[0]).type_as(inputs[0].data)
             range_batch = range_batch.unsqueeze(time_dim)
             bsizes = bsizes.unsqueeze(1 - time_dim)
-            padding_mask = Variable((bsizes - range_batch).le(0), requires_grad=False)
+            padding_mask = Variable(
+                (bsizes - range_batch).le(0), requires_grad=False)
         else:
             padding_mask = inputs.eq(PAD)
-            emb = self.embedder(inputs)
+            emb = self.embedding_dropout(self.embedder(inputs))
         outputs, hidden_t = self.rnn(emb, hidden)
         if isinstance(inputs, PackedSequence):
             outputs = unpack(outputs)[0]
@@ -89,9 +93,9 @@ class RecurrentEncoder(nn.Module):
 
 class RecurrentDecoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=128,
-                 num_layers=1, bias=True, batch_first=False, forget_bias=None,
-                 dropout=0, mode='LSTM', residual=False, tie_embedding=True):
+    def __init__(self, vocab_size, hidden_size=128, num_layers=1, bias=True,
+                 batch_first=False, forget_bias=None, dropout=0,
+                 embedding_dropout=0, mode='LSTM', residual=False, tie_embedding=True):
         super(RecurrentDecoder, self).__init__()
         self.layers = num_layers
         self.hidden_size = hidden_size
@@ -106,6 +110,7 @@ class RecurrentDecoder(nn.Module):
                              batch_first=batch_first, residual=residual,
                              dropout=dropout, bidirectional=False)
         self.classifier = nn.Linear(hidden_size, vocab_size)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
         if tie_embedding:
             self.classifier.weight = self.embedder.weight
 
@@ -113,9 +118,10 @@ class RecurrentDecoder(nn.Module):
         hidden = state.hidden
         if isinstance(inputs, PackedSequence):
             # Lengths data is wrapped inside a Variable.
-            emb = PackedSequence(self.embedder(inputs[0]), inputs[1])
+            emb = PackedSequence(self.embedding_dropout(
+                self.embedder(inputs[0])), inputs[1])
         else:
-            emb = self.embedder(inputs)
+            emb = self.embedding_dropout(self.embedder(inputs))
         x, hidden_t = self.rnn(emb, hidden)
         if isinstance(inputs, PackedSequence):
             x = unpack(x)[0]
@@ -126,9 +132,9 @@ class RecurrentDecoder(nn.Module):
 
 class RecurrentAttentionDecoder(nn.Module):
 
-    def __init__(self, vocab_size, context_size, hidden_size=128,
-                 embedding_size=None, num_layers=1, bias=True, forget_bias=None,
-                 batch_first=False, dropout=0, tie_embedding=False, residual=False,
+    def __init__(self, vocab_size, context_size, hidden_size=128, embedding_size=None,
+                 num_layers=1, bias=True, forget_bias=None, batch_first=False,
+                 dropout=0, embedding_dropout=0, tie_embedding=False, residual=False,
                  attention=None, concat_attention=True, num_pre_attention_layers=None):
         super(RecurrentAttentionDecoder, self).__init__()
         embedding_size = embedding_size or hidden_size
@@ -146,6 +152,7 @@ class RecurrentAttentionDecoder(nn.Module):
                                       attention=attention, concat_attention=concat_attention,
                                       num_pre_attention_layers=num_pre_attention_layers)
         self.classifier = nn.Linear(hidden_size, vocab_size)
+        self.embedding_dropout = nn.Dropout(embedding_dropout)
         if tie_embedding:
             self.classifier.weight = self.embedder.weight
 
@@ -157,7 +164,7 @@ class RecurrentAttentionDecoder(nn.Module):
             attn_input = (context.context, context.outputs)
         else:
             attn_input = context.outputs
-        emb = self.embedder(inputs)
+        emb = self.embedding_dropout(self.embedder(inputs))
         if get_attention:
             x, hidden, attentions = self.rnn(emb, attn_input, state.hidden,
                                              mask_attention=context.mask,
@@ -176,9 +183,10 @@ class RecurrentAttentionDecoder(nn.Module):
 
 class RecurrentAttentionSeq2Seq(Seq2Seq):
 
-    def __init__(self, vocab_size, hidden_size=256, num_layers=2, embedding_size=None,
-                 bias=True, dropout=0, tie_embedding=False, transfer_hidden=False,
-                 forget_bias=None, residual=False, encoder=None, decoder=None, batch_first=False):
+    def __init__(self, vocab_size, hidden_size=256, num_layers=2,
+                 embedding_size=None, bias=True, dropout=0, embedding_dropout=0,
+                 tie_embedding=False, transfer_hidden=False, forget_bias=None,
+                 residual=False, encoder=None, decoder=None, batch_first=False):
         super(RecurrentAttentionSeq2Seq, self).__init__()
         embedding_size = embedding_size or hidden_size
         # keeping encoder, decoder None will result with default configuration
@@ -191,6 +199,7 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
         encoder.setdefault('bias', bias)
         encoder.setdefault('vocab_size', vocab_size)
         encoder.setdefault('dropout', dropout)
+        encoder.setdefault('embedding_dropout', embedding_dropout)
         encoder.setdefault('residual', residual)
         encoder.setdefault('batch_first', batch_first)
         encoder.setdefault('forget_bias', forget_bias)
@@ -202,6 +211,7 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
         decoder.setdefault('tie_embedding', tie_embedding)
         decoder.setdefault('vocab_size', vocab_size)
         decoder.setdefault('dropout', dropout)
+        decoder.setdefault('embedding_dropout', embedding_dropout)
         decoder.setdefault('residual', residual)
         decoder.setdefault('batch_first', batch_first)
         decoder.setdefault('forget_bias', forget_bias)
