@@ -3,11 +3,12 @@ import torch.nn as nn
 from torch.autograd import Variable
 from .attention import AttentionLayer
 from .weight_drop import WeightDrop
+from .weight_norm import weight_norm as wn
 
 
 def Recurrent(mode, input_size, hidden_size,
               num_layers=1, bias=True, batch_first=False,
-              dropout=0, weight_drop=0, bidirectional=False, residual=False,
+              dropout=0, weight_norm=False, weight_drop=0, bidirectional=False, residual=False,
               zoneout=None, attention_layer=None, forget_bias=None):
     params = dict(input_size=input_size, hidden_size=hidden_size,
                   num_layers=num_layers, bias=bias, batch_first=batch_first,
@@ -15,6 +16,8 @@ def Recurrent(mode, input_size, hidden_size,
     need_to_wrap = attention_layer is not None \
         or zoneout is not None \
         or mode not in ['LSTM', 'GRU']
+    wn_func = wn if weight_norm else lambda x: x
+
     if need_to_wrap:
         if mode == 'LSTM':
             rnn_cell = nn.LSTMCell
@@ -28,11 +31,11 @@ def Recurrent(mode, input_size, hidden_size,
 
         if bidirectional:
             bi_module = ConcatRecurrent()
-            bi_module.add_module('0', TimeRecurrentCell(cell(input_size, hidden_size),
+            bi_module.add_module('0', TimeRecurrentCell(wn_func(cell(input_size, hidden_size)),
                                                         batch_first=batch_first,
                                                         lstm=mode == 'LSTM',
                                                         with_attention=attention_layer is not None))
-            bi_module.add_module('0.reversed', TimeRecurrentCell(cell(input_size, hidden_size),
+            bi_module.add_module('0.reversed', TimeRecurrentCell(wn_func(cell(input_size, hidden_size)),
                                                                  batch_first=batch_first,
                                                                  lstm=mode == 'LSTM',
                                                                  reverse=True,
@@ -48,6 +51,7 @@ def Recurrent(mode, input_size, hidden_size,
                                    hidden_size=hidden_size,
                                    num_layers=num_layers,
                                    residual=residual,
+                                   weight_norm=weight_norm,
                                    dropout=dropout)
             else:
                 cell = StackedsAttentionCell(rnn_cell=cell,
@@ -55,6 +59,7 @@ def Recurrent(mode, input_size, hidden_size,
                                              hidden_size=hidden_size,
                                              num_layers=num_layers,
                                              residual=residual,
+                                             weight_norm=weight_norm,
                                              dropout=dropout,
                                              attention_layer=attention_layer)
             module = TimeRecurrentCell(cell,
@@ -72,9 +77,10 @@ def Recurrent(mode, input_size, hidden_size,
         if residual:
             rnn = wrap_stacked_recurrent(rnn,
                                          num_layers=num_layers,
+                                         weight_norm=weight_norm,
                                          residual=True)
             params['num_layers'] = 1
-        module = rnn(**params)
+        module = wn_func(rnn(**params))
 
     if mode == 'LSTM' and forget_bias is not None:
         for n, p in module.named_parameters():
@@ -85,11 +91,14 @@ def Recurrent(mode, input_size, hidden_size,
     return module
 
 
-def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False):
+def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False, weight_norm=False):
     def f(*kargs, **kwargs):
         module = StackedRecurrent(residual)
         for i in range(num_layers):
-            module.add_module(str(i), recurrent_func(*kargs, **kwargs))
+            rnn = recurrent_func(*kargs, **kwargs)
+            if weight_norm:
+                rnn = wn(rnn)
+            module.add_module(str(i), rnn)
         return module
     return f
 
@@ -106,7 +115,7 @@ class StackedRecurrent(nn.Sequential):
         for i, module in enumerate(self._modules.values()):
             output, h = module(inputs, hidden[i])
             next_hidden.append(h)
-            if self.residual:
+            if self.residual and inputs.size(-1) == output.size(-1):
                 inputs = output + inputs
             else:
                 inputs = output
@@ -130,7 +139,7 @@ class ConcatRecurrent(nn.Sequential):
 class StackedCell(nn.Module):
 
     def __init__(self, input_size, hidden_size, num_layers=1,
-                 dropout=0, bias=True, rnn_cell=nn.LSTMCell, residual=False):
+                 dropout=0, bias=True, rnn_cell=nn.LSTMCell, residual=False, weight_norm=False):
         super(StackedCell, self).__init__()
 
         self.dropout = nn.Dropout(dropout)
@@ -139,7 +148,10 @@ class StackedCell(nn.Module):
         self.residual = residual
         self.layers = nn.ModuleList()
         for _ in range(num_layers):
-            self.layers.append(rnn_cell(input_size, hidden_size, bias=bias))
+            rnn = rnn_cell(input_size, hidden_size, bias=bias)
+            if weight_norm:
+                rnn = wn(rnn_cell)
+            self.layers.append(rnn)
             input_size = hidden_size
 
     def forward(self, inputs, hidden):
@@ -156,7 +168,7 @@ class StackedCell(nn.Module):
                 else next_hidden_i
             if i + 1 != self.num_layers:
                 output = self.dropout(output)
-            if self.residual:
+            if self.residual and inputs.size(-1) == output.size(-1):
                 inputs = output + inputs
             else:
                 inputs = output
@@ -171,7 +183,7 @@ class StackedCell(nn.Module):
 class StackedsAttentionCell(StackedCell):
 
     def __init__(self, input_size, hidden_size, attention_layer, num_layers=1,
-                 dropout=0, bias=True, rnn_cell=nn.LSTMCell, residual=False):
+                 dropout=0, bias=True, rnn_cell=nn.LSTMCell, residual=False, weight_norm=False):
         super(StackedsAttentionCell, self).__init__(input_size, hidden_size, num_layers,
                                                     dropout, bias, rnn_cell, residual)
         self.attention = attention_layer
@@ -292,7 +304,7 @@ class RecurrentAttention(nn.Module):
     def __init__(self, input_size, context_size, hidden_size,
                  num_layers=1, bias=True, batch_first=False, dropout=0,
                  concat_attention=True, num_pre_attention_layers=None,
-                 mode='LSTM', residual=False, attention=None, forget_bias=None):
+                 mode='LSTM', residual=False, weight_norm=False, attention=None, forget_bias=None):
         super(RecurrentAttention, self).__init__()
 
         self.hidden_size = hidden_size
@@ -309,6 +321,7 @@ class RecurrentAttention(nn.Module):
         attention['value_size'] = context_value_size
         attention['query_size'] = hidden_size
         attention['batch_first'] = batch_first
+        attention['weight_norm'] = weight_norm
         self.attn = AttentionLayer(**attention)
         num_pre_attention_layers = num_pre_attention_layers or num_layers
 
@@ -322,12 +335,12 @@ class RecurrentAttention(nn.Module):
         self.rnn_att = Recurrent(mode, input_size, hidden_size,
                                  num_layers=num_pre_attention_layers,
                                  bias=bias, dropout=dropout, forget_bias=forget_bias,
-                                 residual=residual, attention_layer=embedd_attn)
+                                 residual=residual, weight_norm=weight_norm, attention_layer=embedd_attn)
 
         if num_layers > num_pre_attention_layers:
             self.rnn_no_att = Recurrent(mode, hidden_size, hidden_size,
                                         num_layers=num_layers - num_pre_attention_layers, bias=bias,
-                                        batch_first=batch_first, residual=residual,
+                                        batch_first=batch_first, residual=residual, weight_norm=weight_norm,
                                         dropout=dropout, forget_bias=forget_bias)
 
     def forward(self, inputs, context, hidden=None, mask_attention=None, get_attention=False):

@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from .weight_norm import weight_norm as wn
 
 """ Implementations of attention layers."""
 
@@ -15,7 +16,7 @@ class AttentionLayer(nn.Module):
     """
 
     def __init__(self, query_size, key_size, value_size=None, mode='bahdanau',
-                 normalize=False, dropout=0, batch_first=False,
+                 normalize=False, dropout=0, batch_first=False, weight_norm=False,
                  output_transform=True, output_nonlinearity='tanh', output_size=None):
         super(AttentionLayer, self).__init__()
         assert mode == 'bahdanau' or mode == 'dot_prod'
@@ -25,17 +26,18 @@ class AttentionLayer(nn.Module):
         self.key_size = key_size
         self.value_size = value_size
         self.normalize = normalize
+        wn_func = wn if weight_norm else lambda x: x
         if mode == 'bahdanau':
             self.linear_att = nn.Linear(key_size, 1)
             if normalize:
                 self.linear_att = nn.utils.weight_norm(self.linear_att)
         if output_transform:
             output_size = output_size or query_size
-            self.linear_out = nn.Linear(query_size + key_size, output_size)
+            self.linear_out = wn_func(nn.Linear(query_size + key_size, output_size))
             self.output_size = output_size
         else:
             self.output_size = value_size
-        self.linear_q = nn.Linear(query_size, key_size)
+        self.linear_q = wn_func(nn.Linear(query_size, key_size))
         self.dropout = nn.Dropout(dropout)
         self.batch_first = batch_first
         self.output_nonlinearity = output_nonlinearity
