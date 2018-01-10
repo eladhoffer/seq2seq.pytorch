@@ -33,7 +33,8 @@ class AttentionLayer(nn.Module):
                 self.linear_att = nn.utils.weight_norm(self.linear_att)
         if output_transform:
             output_size = output_size or query_size
-            self.linear_out = wn_func(nn.Linear(query_size + key_size, output_size))
+            self.linear_out = wn_func(
+                nn.Linear(query_size + key_size, output_size))
             self.output_size = output_size
         else:
             self.output_size = value_size
@@ -174,16 +175,17 @@ class MultiHeadAttention(nn.Module):
     Scaled Dot-Product Attention
     """
 
-    def __init__(self, input_size, output_size, num_heads, dropout=0, causal=False):
+    def __init__(self, input_size, output_size, num_heads, weight_norm=False, dropout=0, causal=False):
         super(MultiHeadAttention, self).__init__()
         assert(input_size % num_heads == 0)
+        wn_func = wn if weight_norm else lambda x: x
         self.input_size = input_size
         self.output_size = output_size
         self.num_heads = num_heads
-        self.linear_q = nn.Linear(input_size, input_size)
-        self.linear_k = nn.Linear(input_size, input_size)
-        self.linear_v = nn.Linear(input_size, input_size)
-        self.linear_out = nn.Linear(input_size, output_size)
+        self.linear_q = wn_func(nn.Linear(input_size, input_size))
+        self.linear_k = wn_func(nn.Linear(input_size, input_size))
+        self.linear_v = wn_func(nn.Linear(input_size, input_size))
+        self.linear_out = wn_func(nn.Linear(input_size, output_size))
         self.sdp_attention = SDPAttention(dropout=dropout, causal=causal)
 
     def set_mask_q(self, masked_tq):
