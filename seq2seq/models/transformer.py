@@ -35,11 +35,11 @@ def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4):
 
 class EncoderBlock(nn.Module):
 
-    def __init__(self, hidden_size=512, num_heads=8, inner_linear=1024, weight_norm=False, dropout=0):
+    def __init__(self, hidden_size=512, num_heads=8, inner_linear=1024, layer_norm=True, weight_norm=False, dropout=0):
 
         super(EncoderBlock, self).__init__()
         wn_func = wn if weight_norm else lambda x: x
-        if not weight_norm:
+        if layer_norm:
             self.lnorm1 = LayerNorm1d(hidden_size)
             self.lnorm2 = LayerNorm1d(hidden_size)
         self.dropout = nn.Dropout(dropout)
@@ -69,11 +69,11 @@ class EncoderBlock(nn.Module):
 
 class DecoderBlock(nn.Module):
 
-    def __init__(self, hidden_size=512, num_heads=8, inner_linear=1024, weight_norm=False, dropout=0):
+    def __init__(self, hidden_size=512, num_heads=8, inner_linear=1024, layer_norm=True, weight_norm=False, dropout=0):
 
         super(DecoderBlock, self).__init__()
         wn_func = wn if weight_norm else lambda x: x
-        if not weight_norm:
+        if layer_norm:
             self.lnorm1 = LayerNorm1d(hidden_size)
             self.lnorm2 = LayerNorm1d(hidden_size)
             self.lnorm3 = LayerNorm1d(hidden_size)
@@ -116,7 +116,7 @@ class TransformerAttentionEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
                  num_layers=6, num_heads=8, inner_linear=1024,
-                 mask_symbol=PAD, weight_norm=False, dropout=0):
+                 mask_symbol=PAD, layer_norm=True, weight_norm=False, dropout=0):
 
         super(TransformerAttentionEncoder, self).__init__()
         embedding_size = embedding_size or hidden_size
@@ -127,7 +127,7 @@ class TransformerAttentionEncoder(nn.Module):
             vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout, inplace=True)
-        self.blocks = nn.ModuleList([EncoderBlock(hidden_size, num_heads, inner_linear, weight_norm, dropout)
+        self.blocks = nn.ModuleList([EncoderBlock(hidden_size, num_heads, inner_linear, layer_norm, weight_norm, dropout)
                                      for _ in range(num_layers)
                                      ])
 
@@ -151,7 +151,7 @@ class TransformerAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
                  num_layers=6, num_heads=8, dropout=0, inner_linear=1024,
-                 mask_symbol=PAD, tie_embedding=True, weight_norm=False):
+                 mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False):
 
         super(TransformerAttentionDecoder, self).__init__()
         embedding_size = embedding_size or hidden_size
@@ -161,7 +161,7 @@ class TransformerAttentionDecoder(nn.Module):
             vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout, inplace=True)
-        self.blocks = nn.ModuleList([DecoderBlock(hidden_size, num_heads, inner_linear, weight_norm, dropout)
+        self.blocks = nn.ModuleList([DecoderBlock(hidden_size, num_heads, inner_linear, layer_norm, weight_norm, dropout)
                                      for _ in range(num_layers)
                                      ])
         self.classifier = nn.Linear(hidden_size, vocab_size)
@@ -196,7 +196,7 @@ class Transformer(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6,
                  num_heads=8, inner_linear=2048, dropout=0.1, tie_embedding=True,
-                 encoder=None, decoder=None, weight_norm=False):
+                 encoder=None, decoder=None, layer_norm=True, weight_norm=False):
         super(Transformer, self).__init__()
         embedding_size = embedding_size or hidden_size
         # keeping encoder, decoder None will result with default configuration
@@ -207,6 +207,7 @@ class Transformer(Seq2Seq):
         encoder.setdefault('num_layers', num_layers)
         encoder.setdefault('num_heads', num_heads)
         encoder.setdefault('vocab_size', vocab_size)
+        encoder.setdefault('layer_norm', layer_norm)
         encoder.setdefault('weight_norm', weight_norm)
         encoder.setdefault('dropout', dropout)
         encoder.setdefault('inner_linear', inner_linear)
@@ -217,6 +218,7 @@ class Transformer(Seq2Seq):
         decoder.setdefault('num_heads', num_heads)
         decoder.setdefault('tie_embedding', tie_embedding)
         decoder.setdefault('vocab_size', vocab_size)
+        decoder.setdefault('layer_norm', layer_norm)
         decoder.setdefault('weight_norm', weight_norm)
         decoder.setdefault('dropout', dropout)
         decoder.setdefault('inner_linear', inner_linear)
