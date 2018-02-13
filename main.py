@@ -57,7 +57,7 @@ parser.add_argument('-b', '--batch-size', default=32, type=int,
 parser.add_argument('--pack_encoder_inputs', action='store_true',
                     help='pack encoder inputs for rnns')
 parser.add_argument('--optimization_config',
-                    default="{0: {'optimizer': SGD, 'lr':0.1, 'momentum':0.9}}",
+                    default="[{'epoch':0, 'optimizer':'SGD', 'lr':0.1, 'momentum':0.9}]",
                     type=str, metavar='OPT',
                     help='optimization regime used')
 parser.add_argument('--print-freq', default=50, type=int,
@@ -178,6 +178,8 @@ def main(args):
     # optionally resume from a checkpoint
     if args.evaluate:
         trainer.load(args.evaluate)
+        trainer.evaluate(val_loader)
+        return
     elif args.resume:
         checkpoint_file = args.resume
         if os.path.isdir(checkpoint_file):

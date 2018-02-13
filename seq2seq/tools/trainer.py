@@ -42,7 +42,7 @@ class Seq2SeqTrainer(object):
      regime is an ordered list by epochs
      (can be a float indicating relative progress)"""
 
-    def __init__(self, model, regime,
+    def __init__(self, model, regime=None,
                  criterion=None,
                  label_smoothing=0,
                  print_freq=10,
