@@ -81,8 +81,9 @@ class Seq2SeqTrainer(object):
         self.save_freq = save_freq
         self.checkpoint_filename = checkpoint_filename
         self.keep_checkpoints = keep_checkpoints
-        results_file = os.path.join(save_path, 'results.%s')
-        self.results = ResultsLog(results_file % 'csv', results_file % 'html')
+        results_file = os.path.join(save_path, 'results')
+        self.results = ResultsLog(results_file,
+                                  params=save_info.get('config', None))
 
     @property
     def batch_first(self):

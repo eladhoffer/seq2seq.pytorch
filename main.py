@@ -94,7 +94,7 @@ def main(args):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    setup_logging(os.path.join(save_path, 'log_%s.txt' % time_stamp))
+    setup_logging(os.path.join(save_path, 'log.txt'))
 
     logging.info("saving to %s", save_path)
     logging.debug("run arguments: %s", args)
