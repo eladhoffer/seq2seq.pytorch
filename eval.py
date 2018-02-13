@@ -76,10 +76,12 @@ def main(args):
 
     checkpoint = torch.load(args.checkpoint , map_location=lambda storage, loc: storage)
     config = checkpoint['config']
+    src_tok, target_tok = checkpoint['tokenizers'].values()
+
     args.data_config = literal_eval(args.data_config)
     dataset = getattr(datasets, args.dataset)
+    args.data_config['tokenizers'] = checkpoint['tokenizers']
     val_data = dataset(args.dataset_dir, split='dev', **args.data_config)
-    src_tok, target_tok = checkpoint['tokenizers'].values()
 
     model = getattr(models, config.model)(**config.model_config)
     model.load_state_dict(checkpoint['state_dict'])
