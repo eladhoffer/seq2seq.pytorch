@@ -7,7 +7,7 @@ from .beam_search import SequenceGenerator
 from torch.nn.functional import adaptive_avg_pool2d
 from seq2seq import models
 from seq2seq.tools import batch_sequences
-
+from seq2seq.models.modules.weight_norm import WeightNorm
 
 def average_models(checkpoint_filenames):
     averaged = {}
@@ -24,6 +24,37 @@ def average_models(checkpoint_filenames):
     checkpoint['state_dict'] = averaged
     return checkpoint
 
+def remove_wn_checkpoint(checkpoint):
+    model = getattr(models, checkpoint['config'].model)(
+        **checkpoint['config'].model_config)
+    model.load_state_dict(checkpoint['state_dict'])
+
+
+    def change_field(dict_obj, field, new_val):
+        for k, v in dict_obj.items():
+            if k == field:
+                dict_obj[k] = new_val
+            elif isinstance(v, dict):
+                change_field(v, field, new_val)
+
+    change_field(checkpoint['config'].model_config, 'layer_norm', False)
+
+    for module in model.modules():
+        if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d) or isinstance(module, nn.LSTM) or isinstance(module, nn.LSTMCell):
+            for n, _ in list(module.named_parameters()):
+                if n.endswith('_g'):
+                    name = n.replace('_g', '')
+                    wn = WeightNorm(None, 0)
+                    weight = wn.compute_weight(module, name)
+                    delattr(module, name)
+                    del module._parameters[name + '_g']
+                    del module._parameters[name + '_v']
+                    module.register_parameter(name, nn.Parameter(weight.data))
+                    print('wn removed from %s - %s' % (module, name))
+
+    checkpoint['state_dict'] = model.state_dict()
+    change_field(checkpoint['config'].model_config, 'weight_norm', False)
+    return checkpoint
 
 class Translator(object):
 
