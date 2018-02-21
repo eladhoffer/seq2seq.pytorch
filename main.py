@@ -82,6 +82,8 @@ parser.add_argument('--max_length', default=100, type=int,
                     help='maximum sequence length')
 parser.add_argument('--max_tokens', default=None, type=int,
                     help='maximum sequence tokens')
+parser.add_argument('--limit_num_tokens', default=None, type=int,
+                    help='trim batch size to fit maximum num of tokens')
 
 
 def main(args):
@@ -160,6 +162,7 @@ def main(args):
         save_info={'tokenizers': train_data.tokenizers,
                    'config': args},
         regime=regime,
+        limit_num_tokens=args.limit_num_tokens,
         devices=args.devices,
         print_freq=args.print_freq,
         save_freq=args.save_freq,

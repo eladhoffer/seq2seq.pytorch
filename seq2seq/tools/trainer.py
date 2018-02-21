@@ -21,6 +21,12 @@ from torch.nn.utils.rnn import PackedSequence
 __all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer', 'Img2SeqTrainer']
 
 
+def _batch_limit_tokens(length_tensor, limit_num):
+    cumsum_length = length_tensor.cumsum(0)
+    _, B = cumsum_length.gt(limit_num).max(0)
+    return int(B) - 1
+
+
 class AddLossModule(nn.Module):
     """adds a loss to module for easy parallelization"""
 
@@ -50,6 +56,7 @@ class Seq2SeqTrainer(object):
                  save_freq=1000,
                  grad_clip=None,
                  embedding_grad_clip=None,
+                 limit_num_tokens=None,
                  save_info={},
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth.tar',
@@ -68,6 +75,7 @@ class Seq2SeqTrainer(object):
         self.training_steps = 0
         self.save_info = save_info
         self.cuda = cuda
+        self.limit_num_tokens = limit_num_tokens
         self.print_freq = print_freq
         self.eval_freq = eval_freq
         self.perplexity = float('inf')
@@ -102,6 +110,19 @@ class Seq2SeqTrainer(object):
             src = src.data
         else:
             src_pack = None
+        # limit number of tokens o avoid gpu overload
+        if self.limit_num_tokens is not None \
+                and src_pack is None:
+            sum_lengths = torch.Tensor(
+                src_length) + torch.Tensor(target_length)
+            if sum_lengths.sum() > self.limit_num_tokens:
+                B = _batch_limit_tokens(sum_lengths, self.limit_num_tokens)
+                src = src.narrow(batch_dim, 0, B)
+                target = target.narrow(batch_dim, 0, B)
+                num_words = sum(target_length[:B]) - B
+                logging.debug(
+                    'Trimmed batch to %s as number of tokens was > %s' %
+                    (B, self.limit_num_tokens))
 
         if self.cuda and not isinstance(self.model_with_loss, DataParallel):
             src = src.cuda()
