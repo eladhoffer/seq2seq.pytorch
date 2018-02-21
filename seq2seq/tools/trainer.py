@@ -10,6 +10,7 @@ from torch.autograd import Variable
 from torch.nn.utils import clip_grad_norm
 import shutil
 import math
+import numpy as np
 from .utils.log import ResultsLog
 from .utils.optim import OptimRegime
 from .utils.meters import AverageMeter
@@ -19,12 +20,6 @@ from .config import PAD
 from torch.nn.utils.rnn import PackedSequence
 
 __all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer', 'Img2SeqTrainer']
-
-
-def _batch_limit_tokens(length_tensor, limit_num):
-    cumsum_length = length_tensor.cumsum(0)
-    _, B = cumsum_length.gt(limit_num).max(0)
-    return int(B) - 1
 
 
 class AddLossModule(nn.Module):
@@ -97,12 +92,39 @@ class Seq2SeqTrainer(object):
     def batch_first(self):
         return getattr(self.model.decoder, 'batch_first', False)
 
+    def _batch_limit_tokens(self, src, target, limit_num=None):
+        limit_num = limit_num or self.limit_num_tokens
+        src, src_length = src
+        target, target_length = target
+        num_tokens = src.size(0) * src.size(1) + \
+            target.size(0) * target.size(1)
+        if num_tokens <= limit_num:
+            return src, target
+        src_max_length = np.maximum.accumulate(src_length)
+        target_max_length = np.maximum.accumulate(target_length)
+        sum_max_length = src_max_length + target_max_length
+        B = int((sum_max_length.cumsum() > limit_num).argmax() - 1)
+        Tsrc = int(src_max_length[B - 1])
+        Ttarget = int(target_max_length[B - 1])
+        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
+
+        src = (src.narrow(batch_dim, 0, B).narrow(time_dim, 0, Tsrc),
+               src_length[:B])
+        target = (target.narrow(batch_dim, 0, B).narrow(time_dim, 0, Ttarget),
+                  target_length[:B])
+        logging.debug(
+            'Trimmed batch to %s as number of tokens was > %s' %
+            (B, limit_num))
+        return src, target
+
     def iterate(self, src, target, training=True):
+        # limit number of tokens o avoid gpu overload
+        if self.limit_num_tokens is not None:
+            src, target = self._batch_limit_tokens(src, target)
         src, src_length = src
         target, target_length = target
         batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
-        T, B = target.size(time_dim), target.size(batch_dim)
-        num_words = sum(target_length) - B
+        num_words = sum(target_length) - target.size(batch_dim)
 
         # Allow packed source sequences - for cudnn rnns
         if isinstance(src, PackedSequence):
@@ -110,19 +132,6 @@ class Seq2SeqTrainer(object):
             src = src.data
         else:
             src_pack = None
-        # limit number of tokens o avoid gpu overload
-        if self.limit_num_tokens is not None \
-                and src_pack is None:
-            sum_lengths = torch.Tensor(
-                src_length) + torch.Tensor(target_length)
-            if sum_lengths.sum() > self.limit_num_tokens:
-                B = _batch_limit_tokens(sum_lengths, self.limit_num_tokens)
-                src = src.narrow(batch_dim, 0, B)
-                target = target.narrow(batch_dim, 0, B)
-                num_words = sum(target_length[:B]) - B
-                logging.debug(
-                    'Trimmed batch to %s as number of tokens was > %s' %
-                    (B, self.limit_num_tokens))
 
         if self.cuda and not isinstance(self.model_with_loss, DataParallel):
             src = src.cuda()
