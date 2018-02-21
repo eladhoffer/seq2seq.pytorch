@@ -99,22 +99,23 @@ class Seq2SeqTrainer(object):
         num_tokens = src.size(0) * src.size(1) + \
             target.size(0) * target.size(1)
         if num_tokens <= limit_num:
-            return src, target
+            return (src, src_length), (target, target_length)
+        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
         src_max_length = np.maximum.accumulate(src_length)
         target_max_length = np.maximum.accumulate(target_length)
         sum_max_length = src_max_length + target_max_length
-        B = int((sum_max_length.cumsum() > limit_num).argmax() - 1)
+        num_tokens_batch = sum_max_length * (np.arange(src.size(batch_dim)) + 1)
+        B = int((num_tokens_batch > limit_num).argmax() - 1)
         Tsrc = int(src_max_length[B - 1])
         Ttarget = int(target_max_length[B - 1])
-        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
 
         src = (src.narrow(batch_dim, 0, B).narrow(time_dim, 0, Tsrc),
                src_length[:B])
         target = (target.narrow(batch_dim, 0, B).narrow(time_dim, 0, Ttarget),
                   target_length[:B])
         logging.debug(
-            'Trimmed batch to %s as number of tokens was > %s' %
-            (B, limit_num))
+            'Trimmed batch to %s as number of tokens was > %s, T = (%s, %s)' %
+            (B, limit_num, Tsrc, Ttarget))
         return src, target
 
     def iterate(self, src, target, training=True):
