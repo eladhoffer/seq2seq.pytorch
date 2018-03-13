@@ -21,7 +21,7 @@ def imagenet_transform(scale_size=256, input_size=224, train=True, allow_var_siz
 
     if train:
         return transforms.Compose([
-            transforms.Scale(scale_size),
+            transforms.Resize(scale_size),
             transforms.RandomCrop(input_size),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
@@ -29,13 +29,13 @@ def imagenet_transform(scale_size=256, input_size=224, train=True, allow_var_siz
         ])
     elif allow_var_size:
         return transforms.Compose([
-            transforms.Scale(scale_size),
+            transforms.Resize(scale_size),
             transforms.ToTensor(),
             transforms.Normalize(**normalize)
         ])
     else:
         return transforms.Compose([
-            transforms.Scale(scale_size),
+            transforms.Resize(scale_size),
             transforms.CenterCrop(input_size),
             transforms.ToTensor(),
             transforms.Normalize(**normalize)
