@@ -292,6 +292,7 @@ class Seq2SeqTrainer(object):
 
                 results['validation loss'] = val_results['loss']
                 results['validation perplexity'] = val_results['perplexity']
+                results['validation accuracy'] = val_results['accuracy']
                 plot_loss += ['validation loss']
                 plot_perplexity += ['validation perplexity']
                 plot_accuracy += ['validation accuracy']
