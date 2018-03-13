@@ -97,14 +97,14 @@ class RecurrentEncoder(nn.Module):
 
 class RecurrentDecoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=128, num_layers=1, bias=True,
-                 batch_first=False, forget_bias=None, dropout=0, embedding_dropout=0,
+    def __init__(self, vocab_size, context_size, hidden_size=128, embedding_size=None, num_layers=1,
+                 bias=True, forget_bias=None, batch_first=False,  dropout=0, embedding_dropout=0,
                  mode='LSTM', residual=False, weight_norm=False, tie_embedding=True):
         super(RecurrentDecoder, self).__init__()
+        embedding_size = embedding_size or hidden_size
         self.layers = num_layers
-        self.hidden_size = hidden_size
         self.batch_first = batch_first
-        embedding_size = hidden_size
+        self.hidden_size = hidden_size
         self.embedder = nn.Embedding(vocab_size,
                                      embedding_size,
                                      sparse=False,
@@ -119,7 +119,7 @@ class RecurrentDecoder(nn.Module):
             self.classifier.weight = self.embedder.weight
 
     def forward(self, inputs, state):
-        hidden = state.hidden
+        context, hidden = state.context, state.hidden
         if isinstance(inputs, PackedSequence):
             # Lengths data is wrapped inside a Variable.
             emb = PackedSequence(self.embedding_dropout(
@@ -131,14 +131,14 @@ class RecurrentDecoder(nn.Module):
             x = unpack(x)[0]
 
         x = self.classifier(x)
-        return x, State(hidden=hidden_t, batch_first=self.batch_first)
+        return x, State(hidden=hidden_t, context=context, batch_first=self.batch_first)
 
 
 class RecurrentAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, context_size, hidden_size=128, embedding_size=None,
                  num_layers=1, bias=True, forget_bias=None, batch_first=False,
-                 dropout=0, embedding_dropout=0, tie_embedding=False, residual=False,
+                 dropout=0, embedding_dropout=0, tie_embedding=False, residual=False, mode='LSTM',
                  weight_norm=False, attention=None, concat_attention=True, num_pre_attention_layers=None):
         super(RecurrentAttentionDecoder, self).__init__()
         embedding_size = embedding_size or hidden_size
@@ -151,7 +151,7 @@ class RecurrentAttentionDecoder(nn.Module):
                                      sparse=False,
                                      padding_idx=PAD)
         self.rnn = RecurrentAttention(embedding_size, context_size, hidden_size, num_layers=num_layers,
-                                      bias=bias, batch_first=batch_first, dropout=dropout,
+                                      bias=bias, batch_first=batch_first, dropout=dropout, mode=mode,
                                       forget_bias=forget_bias, residual=residual, weight_norm=weight_norm,
                                       attention=attention, concat_attention=concat_attention,
                                       num_pre_attention_layers=num_pre_attention_layers)

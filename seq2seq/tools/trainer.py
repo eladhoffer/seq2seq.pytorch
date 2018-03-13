@@ -25,16 +25,26 @@ __all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer', 'Img2SeqTrainer']
 class AddLossModule(nn.Module):
     """adds a loss to module for easy parallelization"""
 
-    def __init__(self, module, criterion):
+    def __init__(self, module, criterion, get_accuracy=True, ignore_index=PAD):
         super(AddLossModule, self).__init__()
         self.module = module
         self.criterion = criterion
+        self.get_accuracy = get_accuracy
+        self.ignore_index = ignore_index
 
     def forward(self, module_inputs, target):
         output = self.module(*module_inputs)
         output = output.view(-1, output.size(2))
         target = target.view(-1)
-        return self.criterion(output, target).view(1, 1)
+        loss = self.criterion(output, target).view(1, 1)
+        if self.get_accuracy:
+            _, argmax = output.max(-1)
+            invalid_targets = target.eq(self.ignore_index)
+            accuracy = argmax.eq(target).masked_fill_(
+                invalid_targets, 0).long().sum()
+            return loss, accuracy.view(1, 1)
+        else:
+            return loss
 
 
 class Seq2SeqTrainer(object):
@@ -104,7 +114,8 @@ class Seq2SeqTrainer(object):
         src_max_length = np.maximum.accumulate(src_length)
         target_max_length = np.maximum.accumulate(target_length)
         sum_max_length = src_max_length + target_max_length
-        num_tokens_batch = sum_max_length * (np.arange(src.size(batch_dim)) + 1)
+        num_tokens_batch = sum_max_length * \
+            (np.arange(src.size(batch_dim)) + 1)
         B = int((num_tokens_batch > limit_num).argmax() - 1)
         Tsrc = int(src_max_length[B - 1])
         Ttarget = int(target_max_length[B - 1])
@@ -152,8 +163,9 @@ class Seq2SeqTrainer(object):
             target_labels = target_var[1:]
 
         # compute output
-        loss = self.model_with_loss(inputs, target_labels).sum()
-        loss /= num_words
+        loss, accuracy = self.model_with_loss(inputs, target_labels)
+        loss = loss.sum() / num_words
+        accuracy = accuracy.sum().float() / num_words
 
         if training:
             # compute gradient and do SGD step
@@ -179,7 +191,7 @@ class Seq2SeqTrainer(object):
                     clip_grad_norm(self.model.decoder.embedder.parameters(),
                                    self.embedding_grad_clip)
             self.optimizer.step()
-        return loss.data[0], num_words
+        return loss.data[0], accuracy.data[0], num_words
 
     def _feed_data(self, data_loader, num_iterations=None, training=True):
         if training:
@@ -192,6 +204,7 @@ class Seq2SeqTrainer(object):
         tok_time = AverageMeter()
         losses = AverageMeter()
         perplexity = AverageMeter()
+        accuracy = AverageMeter()
 
         end = time.time()
         for i, (src, target) in enumerate(data_loader):
@@ -205,11 +218,12 @@ class Seq2SeqTrainer(object):
                 self.optimizer.update(self.epoch, self.training_steps)
 
             # do a train/evaluate iteration
-            loss, num_words = self.iterate(src, target, training=training)
+            loss, acc, num_words = self.iterate(src, target, training=training)
 
             # measure accuracy and record loss
             losses.update(loss, num_words)
             perplexity.update(math.exp(loss), num_words)
+            accuracy.update(acc, num_words)
 
             # measure elapsed time
             elapsed = time.time() - end
@@ -225,16 +239,18 @@ class Seq2SeqTrainer(object):
                                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                                  'Tok/sec {tok_time.val:.3f} ({tok_time.avg:.3f})\t'
                                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                                 'Accuracy {acc.val:.4f} ({acc.avg:.4f})\t'
                                  'Perplexity {perplexity.val:.4f} ({perplexity.avg:.4f})'.format(
                                      int(self.epoch), i, len(data_loader),
                                      phase='TRAINING' if training else 'EVALUATING',
                                      batch_time=batch_time, data_time=data_time, tok_time=tok_time,
-                                     loss=losses, perplexity=perplexity))
+                                     loss=losses, acc=accuracy, perplexity=perplexity))
                 if training and (i % self.save_freq == 0 or last_iteration):
                     self.save(identifier=next(counter))
                 if i % num_iterations == 0 or last_iteration:
-                    yield {'loss': losses.avg, 'perplexity': perplexity.avg}
+                    yield {'loss': losses.avg, 'accuracy': accuracy.avg, 'perplexity': perplexity.avg}
                     losses.reset()
+                    accuracy.reset()
                     perplexity.reset()
 
     def optimize(self, data_loader):
@@ -259,9 +275,11 @@ class Seq2SeqTrainer(object):
             results = {'epoch': self.epoch,
                        'training steps': self.training_steps,
                        'training loss': train_results['loss'],
+                       'training accuracy': train_results['accuracy'],
                        'training perplexity': train_results['perplexity']}
             plot_loss = ['training loss']
             plot_perplexity = ['training perplexity']
+            plot_accuracy = ['training accuracy']
             if val_loader is not None:
                 # evaluate on validation set
                 val_results = self.evaluate(val_loader)
@@ -276,14 +294,19 @@ class Seq2SeqTrainer(object):
                 results['validation perplexity'] = val_results['perplexity']
                 plot_loss += ['validation loss']
                 plot_perplexity += ['validation perplexity']
+                plot_accuracy += ['validation accuracy']
 
             self.results.add(**results)
             self.results.plot(x='training steps', y=plot_perplexity,
                               title='Perplexity', ylabel='perplexity')
+            self.results.plot(x='training steps', y=plot_accuracy,
+                              title='Accuracy', ylabel='accuracy')
             self.results.plot(x='training steps', y=plot_loss,
                               title='Loss', ylabel='loss')
             self.results.plot(x='epoch', y=plot_perplexity,
                               title='Perplexity', ylabel='perplexity')
+            self.results.plot(x='epoch', y=plot_accuracy,
+                              title='Accuracy', ylabel='accuracy')
             self.results.plot(x='epoch', y=plot_loss,
                               title='Loss', ylabel='loss')
             self.results.save()
