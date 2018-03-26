@@ -259,18 +259,23 @@ class TimeRecurrentCell(nn.Module):
         hidden_size = self.cell.hidden_size
         batch_dim = 0 if self.batch_first else 1
         time_dim = 1 if self.batch_first else 0
+        batch_size = inputs.size(batch_dim)
+
         if hidden is None:
-            batch_size = inputs.size(batch_dim)
             num_layers = getattr(self.cell, 'num_layers', 1)
             zero = inputs.data.new(1).zero_()
             h0 = zero.view(1, 1, 1).expand(num_layers, batch_size, hidden_size)
             hidden = Variable(h0, requires_grad=False)
             if self.lstm:
                 hidden = (hidden, Variable(h0, requires_grad=False))
-            if self.with_attention:
-                attn_size = self.cell.attention.output_size
-                a0 = zero.view(1, 1).expand(batch_size, attn_size)
-                hidden = (hidden, Variable(a0, requires_grad=False))
+        if self.with_attention and \
+            (not isinstance(hidden, tuple)
+            or self.lstm and not isinstance(hidden[0], tuple)):
+            # check if additional initial attention state is needed
+            zero = inputs.data.new(1).zero_()
+            attn_size = self.cell.attention.output_size
+            a0 = zero.view(1, 1).expand(batch_size, attn_size)
+            hidden = (hidden, Variable(a0, requires_grad=False))
 
         outputs = []
         attentions = []
@@ -315,7 +320,6 @@ class RecurrentAttention(nn.Module):
             context_key_size, context_value_size = context_size
         else:
             context_key_size = context_value_size = context_size
-
         attention = attention or {}
         attention['key_size'] = context_key_size
         attention['value_size'] = context_value_size

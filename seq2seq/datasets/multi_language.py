@@ -96,7 +96,7 @@ class MultiLanguageDataset(object):
             if self.shared_vocab:
                 files = [self.input_files[t] for t in self.languages]
             else:
-                files = self.input_files[l]
+                files = [self.input_files[l]]
 
             if self.tokenization == 'bpe':
                 tokz = BPETokenizer(self.code_files[l],

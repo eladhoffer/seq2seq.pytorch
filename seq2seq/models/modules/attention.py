@@ -16,8 +16,8 @@ class AttentionLayer(nn.Module):
     """
 
     def __init__(self, query_size, key_size, value_size=None, mode='bahdanau',
-                 normalize=False, dropout=0, batch_first=False, weight_norm=False,
-                 output_transform=True, output_nonlinearity='tanh', output_size=None):
+                 normalize=False, dropout=0, batch_first=False, weight_norm=False, bias=True,
+                 query_transform=True, output_transform=True, output_nonlinearity='tanh', output_size=None):
         super(AttentionLayer, self).__init__()
         assert mode == 'bahdanau' or mode == 'dot_prod'
         value_size = value_size or key_size  # Usually key and values are the same
@@ -28,17 +28,18 @@ class AttentionLayer(nn.Module):
         self.normalize = normalize
         wn_func = wn if weight_norm else lambda x: x
         if mode == 'bahdanau':
-            self.linear_att = nn.Linear(key_size, 1)
+            self.linear_att = nn.Linear(key_size, 1, bias=bias)
             if normalize:
                 self.linear_att = nn.utils.weight_norm(self.linear_att)
         if output_transform:
             output_size = output_size or query_size
             self.linear_out = wn_func(
-                nn.Linear(query_size + key_size, output_size))
+                nn.Linear(query_size + value_size, output_size, bias=bias))
             self.output_size = output_size
         else:
             self.output_size = value_size
-        self.linear_q = wn_func(nn.Linear(query_size, key_size))
+        if query_transform:
+            self.linear_q = wn_func(nn.Linear(query_size, key_size, bias=bias))
         self.dropout = nn.Dropout(dropout)
         self.batch_first = batch_first
         self.output_nonlinearity = output_nonlinearity
@@ -89,8 +90,11 @@ class AttentionLayer(nn.Module):
         t_k = keys.size(1)
         t_q = query.size(1)
 
-        # Fully connected layers to transform query
-        att_query = self.linear_q(query)
+        if hasattr(self, 'linear_q'):
+            # Fully connected layers to transform query
+            att_query = self.linear_q(query)
+        else:
+            att_query = query
 
         scores = self.calc_score(att_query, keys)  # size b x t_q x t_k
         if self.mask is not None:

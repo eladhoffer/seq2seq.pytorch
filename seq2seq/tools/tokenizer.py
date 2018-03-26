@@ -54,7 +54,10 @@ class Tokenizer(object):
 
     def segment(self, line):
         """segments a line to tokenizable items"""
-        return str(line).lower().translate(string.punctuation).strip().split()
+        # tok_func = lambda x: str(x).lower().translate(string.punctuation).strip().split()
+        tok_func = lambda x: str(x).strip().split()
+
+        return tok_func(line)
 
     def get_vocab(self,  item_list, from_filenames=True, limit=None):
         vocab = OrderedCounter()
@@ -83,7 +86,10 @@ class Tokenizer(object):
         vocab = OrderedCounter()
         with codecs.open(vocab_filename, encoding='UTF-8') as f:
             for line in f:
-                word, count = line.strip().split()
+                try:
+                    word, count = line.strip().split()
+                except: #no count
+                    word, count = line.strip(), 0
                 vocab[word] = int(count)
         self.vocab = vocab.most_common(limit)
         self.update_word2idx()

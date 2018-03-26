@@ -11,21 +11,24 @@ from .modules.weight_norm import weight_norm as wn
 from seq2seq.tools.config import PAD
 
 
-def bridge_bidirectional_hidden(hidden):
+def bridge_bidirectional_hidden(hidden, hidden_output_size):
     #  the bidirectional hidden is  (layers*directions) x batch x dim
     #  we need to convert it to layers x batch x (directions*dim)
-    num_layers = hidden.size(0) // 2
-    batch_size, hidden_size = hidden.size(1), hidden.size(2)
-    return hidden.view(num_layers, 2, batch_size, hidden_size) \
-        .transpose(1, 2).contiguous() \
-        .view(num_layers, batch_size, hidden_size * 2)
+    if hidden_output_size == hidden.size(-1):
+        return hidden
+    else: #bidirectional with halved size
+        num_layers = hidden.size(0) // 2
+        batch_size, hidden_size = hidden.size(1), hidden.size(2)
+        return hidden.view(num_layers, 2, batch_size, hidden_size) \
+            .transpose(1, 2).contiguous() \
+            .view(num_layers, batch_size, hidden_size * 2)
 
 
 class RecurrentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128, embedding_size=None, num_layers=1,
                  bias=True, batch_first=False, dropout=0, embedding_dropout=0,
-                 forget_bias=None, context_transform=None, bidirectional=True,
+                 forget_bias=None, context_transform=None, context_bias=False, bidirectional=True, adapt_bidirectional_size=False,
                  num_bidirectional=None, mode='LSTM', residual=False, weight_norm=False):
         super(RecurrentEncoder, self).__init__()
         self.layers = num_layers
@@ -38,14 +41,19 @@ class RecurrentEncoder(nn.Module):
                                      sparse=False,
                                      padding_idx=PAD)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
-        if context_transform is not None:  # additional transform on context before output
-            self.context_transform = nn.Linear(hidden_size, context_transform)
-            if weight_norm:
-                self.context_transform = wn(self.context_transform)
 
-        if bidirectional and num_bidirectional > 0:
+        if adapt_bidirectional_size and bidirectional and num_bidirectional > 0:
+            # adapt hidden size to have output size same as input
             assert hidden_size % 2 == 0
             hidden_size = hidden_size // 2
+        self.hidden_size = hidden_size
+        self.context_size = 2 * hidden_size if bidirectional else hidden_size
+        if context_transform is not None:  # additional transform on context before output
+            self.context_transform = nn.Linear(self.context_size,
+                                               context_transform, bias=context_bias)
+            self.context_size = (context_transform, self.context_size)
+            if weight_norm:
+                self.context_transform = wn(self.context_transform)
         if num_bidirectional is not None and num_bidirectional < num_layers:
             self.rnn = StackedRecurrent()
             self.rnn.add_module('bidirectional', Recurrent(mode, embedding_size, hidden_size,
@@ -137,7 +145,7 @@ class RecurrentDecoder(nn.Module):
 class RecurrentAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, context_size, hidden_size=128, embedding_size=None,
-                 num_layers=1, bias=True, forget_bias=None, batch_first=False,
+                 num_layers=1, bias=True, forget_bias=None, batch_first=False, bias_classifier=True,
                  dropout=0, embedding_dropout=0, tie_embedding=False, residual=False, mode='LSTM',
                  weight_norm=False, attention=None, concat_attention=True, num_pre_attention_layers=None):
         super(RecurrentAttentionDecoder, self).__init__()
@@ -155,7 +163,8 @@ class RecurrentAttentionDecoder(nn.Module):
                                       forget_bias=forget_bias, residual=residual, weight_norm=weight_norm,
                                       attention=attention, concat_attention=concat_attention,
                                       num_pre_attention_layers=num_pre_attention_layers)
-        self.classifier = nn.Linear(hidden_size, vocab_size)
+        self.classifier = nn.Linear(
+            hidden_size, vocab_size, bias=bias_classifier)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
         if tie_embedding:
             self.classifier.weight = self.embedder.weight
@@ -189,7 +198,7 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=256, num_layers=2,
                  embedding_size=None, bias=True, dropout=0, embedding_dropout=0,
-                 tie_embedding=False, transfer_hidden=False, forget_bias=None,
+                 tie_embedding=False, transfer_hidden=False, forget_bias=None, bias_classifier=True,
                  residual=False, weight_norm=False, encoder=None, decoder=None, batch_first=False):
         super(RecurrentAttentionSeq2Seq, self).__init__()
         embedding_size = embedding_size or hidden_size
@@ -221,9 +230,11 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
         decoder.setdefault('weight_norm', weight_norm)
         decoder.setdefault('batch_first', batch_first)
         decoder.setdefault('forget_bias', forget_bias)
-        decoder['context_size'] = encoder['hidden_size']
+        decoder.setdefault('bias_classifier', bias_classifier)
 
         self.encoder = RecurrentEncoder(**encoder)
+        decoder['context_size'] = self.encoder.context_size
+
         self.decoder = RecurrentAttentionDecoder(**decoder)
         self.transfer_hidden = transfer_hidden
 
@@ -239,11 +250,12 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
             new_hidden = []
             for h in hidden:
                 if self.encoder.bidirectional:
-                    new_h = bridge_bidirectional_hidden(h)
+                    new_h = bridge_bidirectional_hidden(h,
+                                                        self.decoder.hidden_size)
                 else:
                     new_h = h
                 new_hidden.append(new_h)
-            state.hidden = new_hidden
+            state.hidden = tuple(new_hidden)
         return state
 
 

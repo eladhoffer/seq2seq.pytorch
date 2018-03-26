@@ -65,7 +65,7 @@ class Seq2SeqTrainer(object):
                  save_info={},
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth.tar',
-                 keep_checkpoints=5,
+                 keep_checkpoints=200,
                  devices=None,
                  cuda=True):
         super(Seq2SeqTrainer, self).__init__()
