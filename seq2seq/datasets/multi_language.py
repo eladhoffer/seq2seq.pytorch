@@ -127,10 +127,12 @@ class MultiLanguageDataset(object):
                 insert_start = [lang_idx]
             insert_end = self.insert_end
 
-            def transform(t, insert_start=insert_start, insert_end=insert_end):
-                return self.tokenizers[l].tokenize(t,
-                                                   insert_start=insert_start,
-                                                   insert_end=insert_end)
+            def transform(txt, tokenizer=self.tokenizers[l],
+                          insert_start=insert_start,
+                          insert_end=insert_end):
+                return tokenizer.tokenize(txt,
+                                          insert_start=insert_start,
+                                          insert_end=insert_end)
             self.datasets[l] = LinedTextDataset(
                 self.input_files[l], transform=transform)
 
@@ -159,7 +161,6 @@ class MultiLanguageDataset(object):
         collate_fn = create_padded_batch(
             max_length=max_length, max_tokens=max_tokens, batch_first=batch_first,
             sort=sort, pack=pack, augment=augment)
-        languages = languages or self.languages
         return torch.utils.data.DataLoader(self,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,

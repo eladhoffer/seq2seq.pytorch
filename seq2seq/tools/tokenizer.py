@@ -107,7 +107,7 @@ class Tokenizer(object):
         return torch.LongTensor(targets)
 
     def detokenize(self, inputs, delimiter=u' '):
-        return delimiter.join([self.idx2word(idx) for idx in inputs]).encode('utf-8')
+        return delimiter.join([self.idx2word(idx) for idx in inputs])
 
 
 class BPETokenizer(Tokenizer):

@@ -31,6 +31,8 @@ class AttentionLayer(nn.Module):
             self.linear_att = nn.Linear(key_size, 1, bias=bias)
             if normalize:
                 self.linear_att = nn.utils.weight_norm(self.linear_att)
+        else:  # dot prod
+            self.scale = nn.Parameter(torch.Tensor([1]))
         if output_transform:
             output_size = output_size or query_size
             self.linear_out = wn_func(
@@ -68,8 +70,8 @@ class AttentionLayer(nn.Module):
             out = self.linear_att(F.tanh(sum_qk)).view(b, t_q, t_k)
         elif self.mode == 'dot_prod':
             out = torch.bmm(att_query, att_keys.transpose(1, 2))
-            if self.normalize:
-                out.div_(n ** 0.5)
+            if hasattr(self, 'scale'):
+                out = out * self.scale
         return out
 
     def forward(self, query, keys, values=None):
