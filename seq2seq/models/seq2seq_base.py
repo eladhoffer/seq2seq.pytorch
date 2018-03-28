@@ -5,6 +5,7 @@ from torch.autograd import Variable
 from torch.nn.functional import log_softmax
 from seq2seq.tools import batch_sequences
 from .modules.state import State
+from seq2seq.tools.config import UNK, PAD
 
 
 class Seq2Seq(nn.Module):
@@ -53,7 +54,10 @@ class Seq2Seq(nn.Module):
             input_decoder, state, devices=devices.get('decoder', None))
         return output
 
-    def generate(self, input_list, state_list, k=1, feed_all_timesteps=False, get_attention=False):
+    def generate(self, input_list, state_list, k=1,
+                 feed_all_timesteps=False,
+                 remove_unknown=False,
+                 get_attention=False):
 
         view_shape = (-1, 1) if self.decoder.batch_first else (1, -1)
         time_dim = 1 if self.decoder.batch_first else 0
@@ -78,6 +82,9 @@ class Seq2Seq(nn.Module):
         # use only last prediction
         logits = logits.select(
             time_dim, logits.size(time_dim) - 1).contiguous()
+        if remove_unknown:
+            # Remove possibility of unknown
+            logits[:, UNK].data.fill_(-float('inf'))
         logprobs = log_softmax(logits, dim=1)
         logprobs, words = logprobs.data.topk(k, 1)
         new_states_list = [new_states[i] for i in range(len(input_list))]

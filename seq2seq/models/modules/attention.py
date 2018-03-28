@@ -31,7 +31,7 @@ class AttentionLayer(nn.Module):
             self.linear_att = nn.Linear(key_size, 1, bias=bias)
             if normalize:
                 self.linear_att = nn.utils.weight_norm(self.linear_att)
-        else:  # dot prod
+        elif normalize:  # dot prod
             self.scale = nn.Parameter(torch.Tensor([1]))
         if output_transform:
             output_size = output_size or query_size

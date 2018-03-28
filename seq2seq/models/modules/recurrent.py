@@ -237,6 +237,27 @@ class ZoneOutCell(nn.Module):
         return next_hidden
 
 
+# class DropoutHiddenCell(nn.Module):
+#
+#     def __init__(self, cell, dropout_hidden=0, dropout_all_states=True):
+#         super(DropoutHiddenCell, self).__init__()
+#         self.cell = cell
+#         self.hidden_size = cell.hidden_size
+#         self.dropout_all_states = dropout_all_states
+#         self.dropout_hidden = nn.Dropout(dropout_hidden)
+#
+#     def forward(self, inputs, hidden):
+#         next_hidden = self.cell(inputs, hidden)
+#         if isinstance(h, tuple):
+#             if self.dropout_all_states:
+#                 next_hidden = tuple([self.dropout_hidden(h_i) for h_i in h])
+#             else:
+#
+#         else:
+#             next_hidden = self.dropout_hidden(h)
+#         return next_hidden
+
+
 def wrap_time_cell(cell_func, batch_first=False, lstm=True, with_attention=False, reverse=False):
     def f(*kargs, **kwargs):
         return TimeRecurrentCell(cell_func(*kargs, **kwargs), batch_first, lstm, with_attention, reverse)
@@ -270,7 +291,7 @@ class TimeRecurrentCell(nn.Module):
                 hidden = (hidden, Variable(h0, requires_grad=False))
         if self.with_attention and \
             (not isinstance(hidden, tuple)
-            or self.lstm and not isinstance(hidden[0], tuple)):
+             or self.lstm and not isinstance(hidden[0], tuple)):
             # check if additional initial attention state is needed
             zero = inputs.data.new(1).zero_()
             attn_size = self.cell.attention.output_size

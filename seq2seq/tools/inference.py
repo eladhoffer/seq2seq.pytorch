@@ -8,6 +8,7 @@ from torch.nn.functional import adaptive_avg_pool2d
 from seq2seq import models
 from seq2seq.tools import batch_sequences
 from seq2seq.models.modules.weight_norm import WeightNorm
+from torch.nn.utils.rnn import PackedSequence
 
 
 def average_models(checkpoint_filenames):
@@ -72,6 +73,7 @@ class Translator(object):
             "supply either a checkpoint dictionary or model and tokenizers"
         if checkpoint is not None:
             config = checkpoint['config']
+            self.pack_encoder_inputs = config.pack_encoder_inputs
             self.model = getattr(models, config.model)(**config.model_config)
             self.model.load_state_dict(checkpoint['state_dict'])
             self.src_tok, self.target_tok = checkpoint['tokenizers'].values()
@@ -79,6 +81,7 @@ class Translator(object):
             self.model = model
             self.src_tok = src_tok
             self.target_tok = target_tok
+            self.pack_encoder_inputs = False
         self.insert_target_start = [BOS]
         self.insert_src_start = [BOS]
         self.insert_src_end = [EOS]
@@ -135,17 +138,31 @@ class Translator(object):
                                                insert_start=self.insert_target_start)
                 bos = [list(bos)] * batch
 
-        src = Variable(batch_sequences(src_tok,
-                                       batch_first=self.model.encoder.batch_first)[0],
-                       volatile=True)
-        if self.cuda:
-            src = src.cuda()
+        order = range(batch)
+        if self.pack_encoder_inputs:
+            # sort by the first set
+            sorted_idx, src_tok = zip(*sorted(
+                enumerate(src_tok), key=lambda x: x[1].numel(), reverse=True))
+            order = [sorted_idx.index(i) for i in order]
 
+        src = batch_sequences(src_tok,
+                              sort=False,
+                              pack=self.pack_encoder_inputs,
+                              batch_first=self.model.encoder.batch_first)[0]
+
+        # Allow packed source sequences - for cudnn rnns
+        if isinstance(src, PackedSequence):
+            src_var = Variable(src[0].cuda() if self.cuda else src[0],
+                               volatile=True)
+            src = PackedSequence(src_var, src[1])
+        elif self.cuda:
+            src = Variable(src.cuda() if self.cuda else src, volatile=True)
         context = self.model.encode(src)
+
         if hasattr(self.model, 'bridge'):
             state = self.model.bridge(context)
-        state_list = [state[i] for i in range(batch)]
 
+        state_list = [state[idx] for idx in order]
         seqs = self.generator.beam_search(bos, state_list)
         # remove forced  tokens
         preds = [s.sentence[len(self.insert_target_start):] for s in seqs]
