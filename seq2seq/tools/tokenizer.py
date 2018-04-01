@@ -22,16 +22,26 @@ class OrderedCounter(Counter, OrderedDict):
 class Tokenizer(object):
 
     def __init__(self, max_length=500, vocab_file=None,
-                 additional_tokens=None,
+                 additional_tokens=None, pre_tokenize=None, post_tokenize=None,
                  vocab_threshold=2):
         self.max_length = max_length
         self.vocab_threshold = vocab_threshold
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
+        self.pre_tokenize = pre_tokenize
+        self.post_tokenize = post_tokenize
+
         if additional_tokens is not None:
             self.special_tokens += additional_tokens
         self.__word2idx = {}
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
+        # if use_moses is not None
+        # try:
+        #     from nltk.tokenize.moses import MosesDetokenizer
+        # except ImportError:
+        #     raise ImportError('nltk is needed for moses tokenization')
+
+        # tknzr = MosesTokenizer(lang)
 
     @property
     def vocab_size(self):
@@ -54,10 +64,11 @@ class Tokenizer(object):
 
     def segment(self, line):
         """segments a line to tokenizable items"""
-        # tok_func = lambda x: str(x).lower().translate(string.punctuation).strip().split()
-        tok_func = lambda x: str(x).strip().split()
+        line = str(line)
+        if self.pre_tokenize is not None:
+            line = self.pre_tokenize(line)
 
-        return tok_func(line)
+        return line.strip().split()
 
     def get_vocab(self,  item_list, from_filenames=True, limit=None):
         vocab = OrderedCounter()
@@ -88,7 +99,7 @@ class Tokenizer(object):
             for line in f:
                 try:
                     word, count = line.strip().split()
-                except: #no count
+                except:  # no count
                     word, count = line.strip(), 0
                 vocab[word] = int(count)
         self.vocab = vocab.most_common(limit)
@@ -107,15 +118,19 @@ class Tokenizer(object):
         return torch.LongTensor(targets)
 
     def detokenize(self, inputs, delimiter=u' '):
-        return delimiter.join([self.idx2word(idx) for idx in inputs])
+        outputs = delimiter.join([self.idx2word(idx) for idx in inputs])
+        if self.post_tokenize is not None:
+            outputs = self.post_tokenize(outputs)
+        return outputs
 
 
 class BPETokenizer(Tokenizer):
 
     def __init__(self, codes_file, vocab_file, additional_tokens=None,
-                 num_symbols=10000, min_frequency=2, seperator='@@'):
+                 num_symbols=10000, min_frequency=2, seperator='@@', pre_tokenize=None):
         super(BPETokenizer, self).__init__(vocab_file=vocab_file,
-                                           additional_tokens=additional_tokens)
+                                           additional_tokens=additional_tokens,
+                                           pre_tokenize=pre_tokenize)
         self.num_symbols = num_symbols
         self.min_frequency = min_frequency
         self.seperator = seperator
@@ -128,6 +143,8 @@ class BPETokenizer(Tokenizer):
             self.bpe = apply_bpe.BPE(codes, self.seperator, None)
 
     def segment(self, line):
+        if self.pre_tokenize is not None:
+            line = self.pre_tokenize(line)
         if not hasattr(self, 'bpe'):
             raise NameError('Learn bpe first!')
         return self.bpe.segment(line).strip().split()
@@ -162,13 +179,16 @@ class BPETokenizer(Tokenizer):
         detok_string = super(BPETokenizer, self).detokenize(inputs, delimiter)
         detok_string = detok_string.decode(
             'utf-8').replace(self.seperator + ' ', '').replace(self.seperator, '')
-        # detok_string = detok_string.encode('utf-8').strip()
+        if self.post_tokenize is not None:
+            detok_string = self.post_tokenize(detok_string)
         return detok_string
 
 
 class CharTokenizer(Tokenizer):
 
     def segment(self, line):
+        if self.pre_tokenize is not None:
+            line = self.pre_tokenize(line)
         return list(line.strip())
 
     def detokenize(self, inputs, delimiter=u''):

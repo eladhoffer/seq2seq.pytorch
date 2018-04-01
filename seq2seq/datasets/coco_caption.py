@@ -1,5 +1,6 @@
 import os
 import logging
+import string
 from random import randrange
 from collections import OrderedDict
 import torch
@@ -75,6 +76,7 @@ class CocoCaptions(object):
                  insert_start=[BOS], insert_end=[EOS],
                  mark_language=False,
                  tokenizer=None,
+                 pre_tokenize=lambda x: x.lower().translate(string.punctuation),
                  sample_caption=True):
         super(CocoCaptions, self).__init__()
         self.shared_vocab = shared_vocab
@@ -88,6 +90,7 @@ class CocoCaptions(object):
         self.vocab_file = vocab_file
         self.sample_caption = None
         self.img_transform = img_transform
+        self.pre_tokenize = pre_tokenize
         if split == 'train':
             path = {'root': os.path.join(root, 'train2014'),
                     'annFile': os.path.join(root, 'annotations/captions_train2014.json')
@@ -129,7 +132,8 @@ class CocoCaptions(object):
             tokz = BPETokenizer(self.code_file,
                                 vocab_file=self.vocab_file,
                                 num_symbols=self.num_symbols,
-                                additional_tokens=additional_tokens)
+                                additional_tokens=additional_tokens,
+                                pre_tokenize=self.pre_tokenize)
             if not hasattr(tokz, 'bpe'):
                 sentences = (d['caption']
                              for d in self.data.coco.anns.values())
@@ -137,7 +141,8 @@ class CocoCaptions(object):
         else:
             tokz = self.__tokenizers[self.tokenization](
                 vocab_file=self.vocab_file,
-                additional_tokens=additional_tokens)
+                additional_tokens=additional_tokens,
+                pre_tokenize=self.pre_tokenize)
 
         if not hasattr(tokz, 'vocab'):
             sentences = (d['caption'] for d in self.data.coco.anns.values())

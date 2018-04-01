@@ -5,8 +5,8 @@ from copy import deepcopy
 from .multi_language import MultiLanguageDataset
 
 
-class WMT16_de_en(MultiLanguageDataset):
-    """docstring for Dataset."""
+class WMT(MultiLanguageDataset):
+    """WMT dataset class"""
 
     def __init__(self,
                  root,
@@ -21,13 +21,16 @@ class WMT16_de_en(MultiLanguageDataset):
                  mark_language=False,
                  tokenizers=None,
                  moses_pretok=False,
+                 languages=['en', 'de'],
+                 train_file="{root}/train{pretok}.clean",
+                 val_file="{root}/newstest2014{pretok}.clean",
+                 test_file="{root}/newstest2016{pretok}.clean",
                  load_data=True):
         pretok = '.tok' if moses_pretok else ''
-        train_prefix = "{root}/train{pretok}.clean".format(
-            root=root, pretok=pretok)
+        train_prefix = train_file.format(root=root, pretok=pretok)
         options = dict(
             prefix=train_prefix,
-            languages=['en', 'de'],
+            languages=languages,
             tokenization=tokenization,
             num_symbols=num_symbols,
             shared_vocab=shared_vocab,
@@ -49,13 +52,25 @@ class WMT16_de_en(MultiLanguageDataset):
             options['code_files'] = getattr(train_data, 'code_files', None)
             options['vocab_files'] = getattr(train_data, 'vocab_files', None)
             if split == 'dev':
-                prefix = "{root}/newstest2014{pretok}.clean".format(
-                    root=root, pretok=pretok)
+                prefix = val_file.format(root=root, pretok=pretok)
             elif split == 'test':
-                prefix = "{root}/newstest2016{pretok}.clean".format(
-                    root=root, pretok=pretok)
+                prefix = test_file.format(root=root, pretok=pretok)
 
             options['prefix'] = prefix
-        super(WMT16_de_en, self).__init__(**options)
+        super(WMT, self).__init__(**options)
         if load_data:
             self.load_data()
+
+
+class WMT16_de_en(WMT):
+    """docstring for Dataset."""
+
+    def __init__(self, *kargs, **kwargs):
+        super(WMT16_de_en, self).__init__(*kargs, **kwargs)
+
+class WMT17_de_en(WMT):
+    """docstring for Dataset."""
+
+    def __init__(self, *kargs, **kwargs):
+        kwargs.setdefault('test_file', "{root}/newstest2017{pretok}.clean")
+        super(WMT17_de_en, self).__init__(*kargs, **kwargs)

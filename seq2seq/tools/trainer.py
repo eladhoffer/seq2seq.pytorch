@@ -65,7 +65,8 @@ class Seq2SeqTrainer(object):
                  save_info={},
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth.tar',
-                 keep_checkpoints=200,
+                 keep_checkpoints=5,
+                 avg_loss_time=True,
                  devices=None,
                  cuda=True):
         super(Seq2SeqTrainer, self).__init__()
@@ -85,6 +86,7 @@ class Seq2SeqTrainer(object):
         self.eval_freq = eval_freq
         self.perplexity = float('inf')
         self.devices = devices
+        self.avg_loss_time = avg_loss_time
         self.model_with_loss = AddLossModule(self.model, self.criterion)
         if isinstance(self.devices, tuple):
             self.model_with_loss = DataParallel(self.model_with_loss,
@@ -164,7 +166,12 @@ class Seq2SeqTrainer(object):
 
         # compute output
         loss, accuracy = self.model_with_loss(inputs, target_labels)
-        loss = loss.sum() / num_words
+        loss = loss.sum()
+        loss_measure = loss.data[0] / num_words
+        if self.avg_loss_time:
+            loss /= num_words
+        else:
+            loss /= target.size(batch_dim)
         accuracy = accuracy.sum().float() / num_words
 
         if training:
@@ -191,7 +198,7 @@ class Seq2SeqTrainer(object):
                     clip_grad_norm(self.model.decoder.embedder.parameters(),
                                    self.embedding_grad_clip)
             self.optimizer.step()
-        return loss.data[0], accuracy.data[0], num_words
+        return loss_measure, accuracy.data[0], num_words
 
     def _feed_data(self, data_loader, num_iterations=None, training=True):
         if training:
