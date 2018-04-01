@@ -46,6 +46,7 @@ class MultiLanguageDataset(object):
                  insert_start=[BOS], insert_end=[EOS],
                  mark_language=False,
                  tokenizers=None,
+                 vocab_limit=None,
                  load_data=True):
         super(MultiLanguageDataset, self).__init__()
         self.languages = languages
@@ -55,6 +56,7 @@ class MultiLanguageDataset(object):
         self.tokenization = tokenization
         self.insert_start = insert_start
         self.insert_end = insert_end
+        self.vocab_limit = vocab_limit
         self.mark_language = mark_language
         self.input_files = {l: '{prefix}.{lang}'.format(
             prefix=prefix, lang=l) for l in languages}
@@ -76,10 +78,10 @@ class MultiLanguageDataset(object):
                 num_symbols = ''
 
             if not shared_vocab:
-                self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab{num_symbols}'.format(
+                self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab_{num_symbols}'.format(
                     prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
             else:
-                vocab = vocab_files or '{prefix}.{tok}.shared_vocab{num_symbols}_{languages}'.format(
+                vocab = vocab_files or '{prefix}.{tok}.shared_vocab_{num_symbols}_{languages}'.format(
                     prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
                 self.vocab_files = {l: vocab for l in languages}
             self.generate_tokenizers()
@@ -108,6 +110,7 @@ class MultiLanguageDataset(object):
             else:
                 tokz = self.__tokenizers[self.tokenization](
                     vocab_file=self.vocab_files[l],
+                    vocab_limit=self.vocab_limit,
                     additional_tokens=additional_tokens)
 
             if not hasattr(tokz, 'vocab'):
@@ -115,6 +118,7 @@ class MultiLanguageDataset(object):
                              self.vocab_files[l])
                 tokz.get_vocab(files)
                 tokz.save_vocab(self.vocab_files[l])
+            tokz.load_vocab(self.vocab_files[l], limit=self.vocab_limit)
             self.tokenizers[l] = tokz
 
     def load_data(self):

@@ -65,12 +65,9 @@ class Tokenizer(object):
     def segment(self, line):
         """segments a line to tokenizable items"""
         line = str(line)
-        if self.pre_tokenize is not None:
-            line = self.pre_tokenize(line)
-
         return line.strip().split()
 
-    def get_vocab(self,  item_list, from_filenames=True, limit=None):
+    def get_vocab(self, item_list, from_filenames=True, limit=None):
         vocab = OrderedCounter()
         if from_filenames:
             filenames = item_list
@@ -107,6 +104,8 @@ class Tokenizer(object):
 
     def tokenize(self, line, insert_start=None, insert_end=None):
         """tokenize a line, insert_start and insert_end are lists of tokens"""
+        if self.pre_tokenize is not None:
+            line = self.pre_tokenize(line)
         inputs = self.segment(line)
         targets = []
         if insert_start is not None:
@@ -127,27 +126,28 @@ class Tokenizer(object):
 class BPETokenizer(Tokenizer):
 
     def __init__(self, codes_file, vocab_file, additional_tokens=None,
-                 num_symbols=10000, min_frequency=2, seperator='@@', pre_tokenize=None):
+                 num_symbols=10000, min_frequency=2, separator='@@',
+                 pre_tokenize=None, post_tokenize=None,):
         super(BPETokenizer, self).__init__(vocab_file=vocab_file,
                                            additional_tokens=additional_tokens,
-                                           pre_tokenize=pre_tokenize)
+                                           pre_tokenize=pre_tokenize,
+                                           post_tokenize=post_tokenize)
         self.num_symbols = num_symbols
         self.min_frequency = min_frequency
-        self.seperator = seperator
+        self.separator = separator
         self.codes_file = codes_file
         if os.path.isfile(codes_file):
             self.set_bpe(codes_file)
 
     def set_bpe(self, codes_file):
         with codecs.open(self.codes_file, encoding='UTF-8') as codes:
-            self.bpe = apply_bpe.BPE(codes, self.seperator, None)
+            self.bpe = apply_bpe.BPE(codes, separator=self.separator)
+
 
     def segment(self, line):
-        if self.pre_tokenize is not None:
-            line = self.pre_tokenize(line)
         if not hasattr(self, 'bpe'):
             raise NameError('Learn bpe first!')
-        return self.bpe.segment(line).strip().split()
+        return self.bpe.segment(line.strip()).split()
 
     def learn_bpe(self, item_list, from_filenames=True):
         logging.info('generating bpe codes file. saving to %s' %
@@ -177,18 +177,15 @@ class BPETokenizer(Tokenizer):
 
     def detokenize(self, inputs, delimiter=' '):
         detok_string = super(BPETokenizer, self).detokenize(inputs, delimiter)
-        detok_string = detok_string.decode(
-            'utf-8').replace(self.seperator + ' ', '').replace(self.seperator, '')
-        if self.post_tokenize is not None:
-            detok_string = self.post_tokenize(detok_string)
+        detok_string = detok_string.decode('utf-8')\
+            .replace(self.separator + ' ', '')\
+            .replace(self.separator, '')
         return detok_string
 
 
 class CharTokenizer(Tokenizer):
 
     def segment(self, line):
-        if self.pre_tokenize is not None:
-            line = self.pre_tokenize(line)
         return list(line.strip())
 
     def detokenize(self, inputs, delimiter=u''):

@@ -20,6 +20,7 @@ class WMT(MultiLanguageDataset):
                  insert_end=[EOS],
                  mark_language=False,
                  tokenizers=None,
+                 vocab_limit=None,
                  moses_pretok=False,
                  languages=['en', 'de'],
                  train_file="{root}/train{pretok}.clean",
@@ -40,6 +41,7 @@ class WMT(MultiLanguageDataset):
             insert_end=insert_end,
             mark_language=mark_language,
             tokenizers=tokenizers,
+            vocab_limit=vocab_limit,
             load_data=False
         )
         train_options = deepcopy(options)
@@ -67,6 +69,7 @@ class WMT16_de_en(WMT):
 
     def __init__(self, *kargs, **kwargs):
         super(WMT16_de_en, self).__init__(*kargs, **kwargs)
+
 
 class WMT17_de_en(WMT):
     """docstring for Dataset."""
