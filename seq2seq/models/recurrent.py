@@ -16,7 +16,7 @@ def bridge_bidirectional_hidden(hidden, hidden_output_size):
     #  we need to convert it to layers x batch x (directions*dim)
     if hidden_output_size == hidden.size(-1):
         return hidden
-    else: #bidirectional with halved size
+    else:  # bidirectional with halved size
         num_layers = hidden.size(0) // 2
         batch_size, hidden_size = hidden.size(1), hidden.size(2)
         return hidden.view(num_layers, 2, batch_size, hidden_size) \
@@ -24,12 +24,49 @@ def bridge_bidirectional_hidden(hidden, hidden_output_size):
             .view(num_layers, batch_size, hidden_size * 2)
 
 
+class HiddenTransform(nn.Module):
+    """docstring for [object Object]."""
+
+    def __init__(self, input_shape, output_shape, activation='tanh', bias=True, batch_first=False):
+        super(HiddenTransform, self).__init__()
+        self.batch_first = batch_first
+        self.activation = nn.Tanh() if activation == 'tanh' else None
+        if not isinstance(input_shape, tuple):
+            input_shape = (input_shape,)
+        if not isinstance(output_shape, tuple):
+            output_shape = (output_shape,)
+        assert len(input_shape) == len(output_shape)
+        self.module_list = nn.ModuleList()
+        for i in range(len(input_shape)):
+            self.module_list.append(
+                nn.Linear(input_shape[i], output_shape[i], bias=bias))
+
+    def forward(self, hidden):
+        hidden_in = hidden if isinstance(hidden, tuple)\
+            else (hidden,)
+        hidden_out = []
+        for i, h_in in enumerate(hidden_in):
+            if not self.batch_first:
+                h_in = h_in.transpose(0, 1)
+            h_in = h_in.contiguous().view(h_in.size(0), -1)
+            h_out = self.module_list[i](h_in)
+            if self.activation is not None:
+                h_out = self.activation(h_out)
+            h_out = h_out.unsqueeze(1 if self.batch_first else 0)
+            hidden_out.append(h_out)
+        if isinstance(hidden, tuple):
+            return tuple(hidden_out)
+        else:
+            return hidden_out[0]
+
+
 class RecurrentEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=128, embedding_size=None, num_layers=1,
-                 bias=True, batch_first=False, dropout=0, embedding_dropout=0,
-                 forget_bias=None, context_transform=None, context_bias=False, bidirectional=True, adapt_bidirectional_size=False,
-                 num_bidirectional=None, mode='LSTM', residual=False, weight_norm=False):
+                 bias=True, batch_first=False, dropout=0, embedding_dropout=0, forget_bias=None,
+                 context_transform=None, context_transform_bias=True, hidden_transform=None, hidden_transform_bias=True,
+                 bidirectional=True, adapt_bidirectional_size=False, num_bidirectional=None,
+                 mode='LSTM', residual=False, weight_norm=False):
         super(RecurrentEncoder, self).__init__()
         self.layers = num_layers
         self.bidirectional = bidirectional
@@ -50,11 +87,12 @@ class RecurrentEncoder(nn.Module):
         self.context_size = 2 * hidden_size if bidirectional else hidden_size
         if context_transform is not None:  # additional transform on context before output
             self.context_transform = nn.Linear(self.context_size,
-                                               context_transform, bias=context_bias)
+                                               context_transform, bias=context_transform_bias)
             self.context_size = (context_transform, self.context_size)
             if weight_norm:
                 self.context_transform = wn(self.context_transform)
         if num_bidirectional is not None and num_bidirectional < num_layers:
+            assert hidden_transform is None, "hidden transform can be used only for single bidi encoder for now"
             self.rnn = StackedRecurrent()
             self.rnn.add_module('bidirectional', Recurrent(mode, embedding_size, hidden_size,
                                                            num_layers=num_bidirectional, bias=bias,
@@ -72,6 +110,15 @@ class RecurrentEncoder(nn.Module):
                                  batch_first=batch_first, residual=residual,
                                  weight_norm=weight_norm, dropout=dropout,
                                  bidirectional=bidirectional)
+            if hidden_transform is not None:
+                hidden_size = hidden_size * num_layers
+                if bidirectional:
+                    hidden_size += hidden_size
+                if mode == 'LSTM':
+                    hidden_size = (hidden_size, hidden_size)
+
+                self.hidden_transform = HiddenTransform(
+                    hidden_size, hidden_transform, bias=hidden_transform_bias, batch_first=batch_first)
 
     def forward(self, inputs, hidden=None):
         if isinstance(inputs, PackedSequence):
@@ -97,6 +144,9 @@ class RecurrentEncoder(nn.Module):
             context = self.context_transform(outputs)
         else:
             context = None
+
+        if hasattr(self, 'hidden_transform'):
+            hidden_t = self.hidden_transform(hidden_t)
 
         state = State(outputs=outputs, hidden=hidden_t, context=context,
                       mask=padding_mask, batch_first=self.batch_first)
@@ -217,6 +267,8 @@ class RecurrentAttentionSeq2Seq(Seq2Seq):
         encoder.setdefault('weight_norm', weight_norm)
         encoder.setdefault('batch_first', batch_first)
         encoder.setdefault('forget_bias', forget_bias)
+        if not transfer_hidden:  # no use for hidden transform if not transferred
+            encoder['hidden_transform'] = None
 
         decoder.setdefault('embedding_size', embedding_size)
         decoder.setdefault('hidden_size', hidden_size)
