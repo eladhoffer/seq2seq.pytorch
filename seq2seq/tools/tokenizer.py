@@ -143,7 +143,6 @@ class BPETokenizer(Tokenizer):
         with codecs.open(self.codes_file, encoding='UTF-8') as codes:
             self.bpe = apply_bpe.BPE(codes, separator=self.separator)
 
-
     def segment(self, line):
         if not hasattr(self, 'bpe'):
             raise NameError('Learn bpe first!')
@@ -177,7 +176,11 @@ class BPETokenizer(Tokenizer):
 
     def detokenize(self, inputs, delimiter=' '):
         detok_string = super(BPETokenizer, self).detokenize(inputs, delimiter)
-        detok_string = detok_string.decode('utf-8')\
+        try:
+            detok_string = detok_string.decode('utf-8')
+        except:
+            pass
+        detok_string = detok_string\
             .replace(self.separator + ' ', '')\
             .replace(self.separator, '')
         return detok_string

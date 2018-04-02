@@ -1,7 +1,7 @@
 from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
 
 test_file = '../../README.md'
-text = 'hello world'
+text = 'machine learning - hello world'
 
 tokenizer = Tokenizer(vocab_file='test.vocab')
 tokenizer.get_vocab([test_file], from_filenames=True)
