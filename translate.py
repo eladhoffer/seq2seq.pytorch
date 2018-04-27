@@ -35,7 +35,7 @@ if __name__ == '__main__':
     except:
         pass
     if 'cuda' in args.type and torch.cuda.is_available():
-        cuda = True
+        device = "cuda"
         main_gpu = 0
         if isinstance(args.devices, tuple):
             main_gpu = args.devices[0]
@@ -46,7 +46,7 @@ if __name__ == '__main__':
         torch.cuda.set_device(main_gpu)
         torch.backends.cudnn.benchmark = True
     else:
-        cuda = False
+        device = "cpu"
     if isinstance(args.model, tuple):  # average models
         checkpoint = average_models(args.model)
     else:
@@ -57,7 +57,7 @@ if __name__ == '__main__':
                                    beam_size=args.beam_size,
                                    max_sequence_length=args.max_sequence_length,
                                    length_normalization_factor=args.length_normalization,
-                                   cuda=cuda)
+                                   device=device)
 
     output_file = codecs.open(args.output, 'w', encoding='UTF-8')
 

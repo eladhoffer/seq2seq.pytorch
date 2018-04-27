@@ -1,7 +1,7 @@
 import torch
 from random import randrange
 from math import floor
-from torch.nn.utils.rnn import pack_padded_sequence
+from torch.nn.utils.rnn import pack_padded_sequence, PackedSequence
 from .config import PAD
 
 
@@ -16,8 +16,8 @@ def _limit_lengths(seqs, max_length=None, max_tokens=None):
     return lengths
 
 
-def batch_sequences(seqs, max_length=None, max_tokens=None,
-                    batch_first=False, sort=False, pack=False, augment=False):
+def batch_sequences(seqs, max_length=None, max_tokens=None, batch_first=False, pad_value=PAD,
+                    sort=False, pack=False, augment=False, device=None, dtype=torch.long):
     """
     seqs: a list of Tensors to be batched together
     max_length: maximum sequence length permitted
@@ -36,7 +36,8 @@ def batch_sequences(seqs, max_length=None, max_tokens=None,
         batch_length = max(lengths)
         tensor_size = (len(seqs), batch_length) if batch_first \
             else (batch_length, len(seqs))
-        seq_tensor = torch.LongTensor(*tensor_size).fill_(PAD)
+        seq_tensor = torch.full(tensor_size, pad_value,
+                                dtype=dtype, device=device)
         for i, seq in enumerate(seqs):
             start_seq = 0
             end_seq = lengths[i]
@@ -49,4 +50,7 @@ def batch_sequences(seqs, max_length=None, max_tokens=None,
     if pack:
         seq_tensor = pack_padded_sequence(
             seq_tensor, lengths, batch_first=batch_first)
+        if device is not None:  # batch_sizes is not casted to device by default
+            seq_tensor = PackedSequence(seq_tensor.data,
+                                        seq_tensor.batch_sizes.to(device))
     return (seq_tensor, lengths)

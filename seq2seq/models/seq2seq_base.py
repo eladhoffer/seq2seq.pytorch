@@ -6,6 +6,7 @@ from torch.nn.functional import log_softmax
 from seq2seq.tools import batch_sequences
 from .modules.state import State
 from seq2seq.tools.config import UNK, PAD
+from seq2seq.tools.beam_search import SequenceGenerator
 
 
 class Seq2Seq(nn.Module):
@@ -54,38 +55,55 @@ class Seq2Seq(nn.Module):
             input_decoder, state, devices=devices.get('decoder', None))
         return output
 
-    def generate(self, input_list, state_list, k=1,
-                 feed_all_timesteps=False,
-                 remove_unknown=False,
-                 get_attention=False):
+    def _decode_step(self, input_list, state_list, k=1,
+                     feed_all_timesteps=False,
+                     remove_unknown=False,
+                     get_attention=False):
 
         view_shape = (-1, 1) if self.decoder.batch_first else (1, -1)
         time_dim = 1 if self.decoder.batch_first else 0
+        device = next(self.decoder.parameters()).device
 
         # For recurrent models, the last input frame is all we care about,
         # use feed_all_timesteps whenever the whole input needs to be fed
         if feed_all_timesteps:
-            inputs = [torch.LongTensor(inp) for inp in input_list]
+            inputs = [torch.tensor(inp, device=device, dtype=torch.long)
+                      for inp in input_list]
             inputs = batch_sequences(
-                inputs, batch_first=self.decoder.batch_first)[0]
-        else:
-            inputs = torch.LongTensor(
-                [inputs[-1] for inputs in input_list]).view(*view_shape)
+                inputs, device=device, batch_first=self.decoder.batch_first)[0]
 
-        inputs_var = Variable(inputs, volatile=True)
-        if next(self.decoder.parameters()).is_cuda:
-            inputs_var = inputs_var.cuda()
+        else:
+            last_tokens = [inputs[-1] for inputs in input_list]
+            inputs = torch.stack(last_tokens).view(*view_shape)
 
         states = State().from_list(state_list)
         logits, new_states = self.decode(
-            inputs_var, states, get_attention=get_attention)
+            inputs, states, get_attention=get_attention)
         # use only last prediction
-        logits = logits.select(
-            time_dim, logits.size(time_dim) - 1).contiguous()
+        logits = logits.select(time_dim, -1).contiguous()
         if remove_unknown:
             # Remove possibility of unknown
-            logits[:, UNK].data.fill_(-float('inf'))
+            logits[:, UNK].fill_(-float('inf'))
         logprobs = log_softmax(logits, dim=1)
-        logprobs, words = logprobs.data.topk(k, 1)
+        logprobs, words = logprobs.topk(k, 1)
         new_states_list = [new_states[i] for i in range(len(input_list))]
         return words, logprobs, new_states_list
+
+    def generate(self, input_encoder, input_decoder, beam_size=None,
+                 max_sequence_length=None, length_normalization_factor=0,
+                 get_attention=False, devices=None):
+        batch_size = 1 if self.decoder.batch_first else 0
+        if not isinstance(devices, dict):
+            devices = {'encoder': devices, 'decoder': devices}
+        context = self.encode(input_encoder,
+                              devices=devices.get('encoder', None))
+        if hasattr(self, 'bridge'):
+            state = self.bridge(context)
+        state_list = state.as_list()
+        generator = SequenceGenerator(
+            decode_step=self._decode_step,
+            beam_size=beam_size,
+            max_sequence_length=max_sequence_length,
+            get_attention=get_attention,
+            length_normalization_factor=length_normalization_factor)
+        return generator.beam_search(input_decoder, state_list)

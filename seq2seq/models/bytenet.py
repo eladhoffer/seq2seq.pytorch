@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .modules.normalization import LayerNorm1d
 from .modules.conv import MaskedConv1d
 
 class ResidualBlock(nn.Module):
@@ -10,9 +9,9 @@ class ResidualBlock(nn.Module):
         super(ResidualBlock, self).__init__()
         out_channels = out_channels or in_channels
         interm_channels = interm_channels or in_channels // 2
-        self.layernorm1 = LayerNorm1d(in_channels)
-        self.layernorm2 = LayerNorm1d(interm_channels)
-        self.layernorm3 = LayerNorm1d(interm_channels)
+        self.layernorm1 = nn.LayerNorm(in_channels)
+        self.layernorm2 = nn.LayerNorm(interm_channels)
+        self.layernorm3 = nn.LayerNorm(interm_channels)
         self.conv1 = nn.Conv1d(in_channels, interm_channels, 1)
         self.conv2 = MaskedConv1d(
             interm_channels, interm_channels, kernel_size, dilation=dilation, causal=causal)

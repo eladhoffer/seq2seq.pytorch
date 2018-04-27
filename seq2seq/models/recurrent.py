@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import PackedSequence
@@ -66,8 +65,9 @@ class RecurrentEncoder(nn.Module):
                  bias=True, batch_first=False, dropout=0, embedding_dropout=0, forget_bias=None,
                  context_transform=None, context_transform_bias=True, hidden_transform=None, hidden_transform_bias=True,
                  bidirectional=True, adapt_bidirectional_size=False, num_bidirectional=None,
-                 mode='LSTM', residual=False, weight_norm=False):
+                 mode='LSTM', pack_inputs=True, residual=False, weight_norm=False):
         super(RecurrentEncoder, self).__init__()
+        self.pack_inputs = pack_inputs  # pack input using PackedSequence
         self.layers = num_layers
         self.bidirectional = bidirectional
         self.batch_first = batch_first
@@ -78,6 +78,7 @@ class RecurrentEncoder(nn.Module):
                                      sparse=False,
                                      padding_idx=PAD)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
+        self.dropout = nn.Dropout(dropout)
 
         if adapt_bidirectional_size and bidirectional and num_bidirectional > 0:
             # adapt hidden size to have output size same as input
@@ -93,7 +94,7 @@ class RecurrentEncoder(nn.Module):
                 self.context_transform = wn(self.context_transform)
         if num_bidirectional is not None and num_bidirectional < num_layers:
             assert hidden_transform is None, "hidden transform can be used only for single bidi encoder for now"
-            self.rnn = StackedRecurrent()
+            self.rnn = StackedRecurrent(dropout=dropout, residual=residual)
             self.rnn.add_module('bidirectional', Recurrent(mode, embedding_size, hidden_size,
                                                            num_layers=num_bidirectional, bias=bias,
                                                            batch_first=batch_first, residual=residual,
@@ -122,24 +123,25 @@ class RecurrentEncoder(nn.Module):
 
     def forward(self, inputs, hidden=None):
         if isinstance(inputs, PackedSequence):
-            # Lengths data is wrapped inside a Variable.
-            bsizes = inputs[1]
+            bsizes = inputs.batch_sizes
+            max_batch = int(bsizes[0])
             emb = PackedSequence(self.embedding_dropout(
-                self.embedder(inputs[0])), bsizes)
+                self.embedder(inputs.data)), bsizes)
             # Get padding mask
             time_dim = 1 if self.batch_first else 0
-            bsizes = torch.Tensor(bsizes).type_as(inputs[0].data)
-            range_batch = torch.arange(0, bsizes[0]).type_as(inputs[0].data)
+            range_batch = torch.arange(0, max_batch,
+                                       dtype=bsizes.dtype,
+                                       device=bsizes.device)
             range_batch = range_batch.unsqueeze(time_dim)
             bsizes = bsizes.unsqueeze(1 - time_dim)
-            padding_mask = Variable(
-                (bsizes - range_batch).le(0), requires_grad=False)
+            padding_mask = (bsizes - range_batch).le(0)
         else:
             padding_mask = inputs.eq(PAD)
             emb = self.embedding_dropout(self.embedder(inputs))
         outputs, hidden_t = self.rnn(emb, hidden)
         if isinstance(inputs, PackedSequence):
             outputs = unpack(outputs)[0]
+        outputs = self.dropout(outputs)
         if hasattr(self, 'context_transform'):
             context = self.context_transform(outputs)
         else:
@@ -173,20 +175,22 @@ class RecurrentDecoder(nn.Module):
                              dropout=dropout, bidirectional=False)
         self.classifier = nn.Linear(hidden_size, vocab_size)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
+        self.dropout = nn.Dropout(dropout)
+
         if tie_embedding:
             self.classifier.weight = self.embedder.weight
 
     def forward(self, inputs, state):
         context, hidden = state.context, state.hidden
         if isinstance(inputs, PackedSequence):
-            # Lengths data is wrapped inside a Variable.
             emb = PackedSequence(self.embedding_dropout(
-                self.embedder(inputs[0])), inputs[1])
+                self.embedder(inputs.data)), inputs.batch_size)
         else:
             emb = self.embedding_dropout(self.embedder(inputs))
         x, hidden_t = self.rnn(emb, hidden)
         if isinstance(inputs, PackedSequence):
             x = unpack(x)[0]
+        x = self.dropout(x)
 
         x = self.classifier(x)
         return x, State(hidden=hidden_t, context=context, batch_first=self.batch_first)
@@ -216,6 +220,8 @@ class RecurrentAttentionDecoder(nn.Module):
         self.classifier = nn.Linear(
             hidden_size, vocab_size, bias=bias_classifier)
         self.embedding_dropout = nn.Dropout(embedding_dropout)
+        self.dropout = nn.Dropout(dropout)
+
         if tie_embedding:
             self.classifier.weight = self.embedder.weight
 
@@ -228,6 +234,7 @@ class RecurrentAttentionDecoder(nn.Module):
         else:
             attn_input = context.outputs
         emb = self.embedding_dropout(self.embedder(inputs))
+
         if get_attention:
             x, hidden, attentions = self.rnn(emb, attn_input, state.hidden,
                                              mask_attention=context.mask,
@@ -235,6 +242,7 @@ class RecurrentAttentionDecoder(nn.Module):
         else:
             x, hidden = self.rnn(emb, attn_input, state.hidden,
                                  mask_attention=context.mask)
+        x = self.dropout(x)
         x = self.classifier(x)
 
         new_state = State(hidden=hidden, context=context,

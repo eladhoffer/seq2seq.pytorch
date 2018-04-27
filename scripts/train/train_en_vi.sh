@@ -17,8 +17,7 @@ python main.py \
   --data_config "{'tokenization':'word', 'shared_vocab':False}" \
   --b 256 \
   --max_length 50 \
-  --devices 0 \
-  --pack_encoder_inputs \
+  --device_ids 0 \
   --uniform_init 0.1 \
   --trainer Seq2SeqTrainer \
   --optimization_config "[{'step': 0, 'optimizer': 'SGD', 'lr': 1},

@@ -11,16 +11,16 @@ from .config import EOS
 class Sequence(object):
     """Represents a complete or partial sequence."""
 
-    def __init__(self, sentence, state, logprob, score, attention=None):
+    def __init__(self, output, state, logprob, score, attention=None):
         """Initializes the Sequence.
 
         Args:
-          sentence: List of word ids in the sequence.
+          output: List of word ids in the sequence.
           state: Model state after generating the previous word.
           logprob: Log-probability of the sequence.
           score: Score of the sequence.
         """
-        self.sentence = sentence
+        self.output = output
         self.state = state
         self.logprob = logprob
         self.score = score
@@ -93,7 +93,7 @@ class SequenceGenerator(object):
     """Class to generate sequences from an image-to-text model."""
 
     def __init__(self,
-                 model,
+                 decode_step,
                  eos_id=EOS,
                  beam_size=3,
                  max_sequence_length=50,
@@ -103,7 +103,7 @@ class SequenceGenerator(object):
         """Initializes the generator.
 
         Args:
-          model: recurrent model, with inputs: (input, state) and outputs len(vocab) values
+          deocde_step: function, with inputs: (input, state) and outputs len(vocab) values
           eos_id: the token number symobling the end of sequence
           beam_size: Beam size to use when generating sequences.
           max_sequence_length: The maximum sequence length before stopping the search.
@@ -114,7 +114,7 @@ class SequenceGenerator(object):
             alpha in: https://arxiv.org/abs/1609.08144
           length_normalization_const: 5 in https://arxiv.org/abs/1609.08144
         """
-        self.model = model
+        self.decode_step = decode_step
         self.eos_id = eos_id
         self.beam_size = beam_size
         self.max_sequence_length = max_sequence_length
@@ -138,7 +138,7 @@ class SequenceGenerator(object):
         partial_sequences = [TopN(self.beam_size) for _ in range(batch_size)]
         complete_sequences = [TopN(self.beam_size) for _ in range(batch_size)]
 
-        words, logprobs, new_state = self.model.generate(
+        words, logprobs, new_state = self.decode_step(
             initial_input, initial_state,
             k=self.beam_size,
             feed_all_timesteps=True,
@@ -148,7 +148,7 @@ class SequenceGenerator(object):
             # batch
             for k in range(self.beam_size):
                 seq = Sequence(
-                    sentence=initial_input[b] + [words[b][k]],
+                    output=initial_input[b] + [words[b][k]],
                     state=new_state[b],
                     logprob=logprobs[b][k],
                     score=logprobs[b][k],
@@ -166,7 +166,7 @@ class SequenceGenerator(object):
             flattened_partial = [
                 s for sub_partial in partial_sequences_list for s in sub_partial]
 
-            input_feed = [c.sentence for c in flattened_partial]
+            input_feed = [c.output for c in flattened_partial]
             state_feed = [c.state for c in flattened_partial]
             if len(input_feed) == 0:
                 # We have run out of partial candidates; happens when
@@ -176,7 +176,7 @@ class SequenceGenerator(object):
             # Feed current hypotheses through the model, and recieve new outputs and states
             # logprobs are needed to rank hypotheses
             words, logprobs, new_states \
-                = self.model.generate(
+                = self.decode_step(
                     input_feed, state_feed,
                     k=self.beam_size + 1, get_attention=self.get_attention)
 
@@ -195,7 +195,7 @@ class SequenceGenerator(object):
                     num_hyp = 0
                     while num_hyp < self.beam_size:
                         w = words[idx][k]
-                        sentence = partial.sentence + [w]
+                        output = partial.output + [w]
                         logprob = partial.logprob + logprobs[idx][k]
                         score = logprob
                         k += 1
@@ -204,14 +204,14 @@ class SequenceGenerator(object):
                         if w == self.eos_id:
                             if self.length_normalization_factor > 0:
                                 L = self.length_normalization_const
-                                length_penalty = (L + len(sentence)) / (L + 1)
+                                length_penalty = (L + len(output)) / (L + 1)
                                 score /= length_penalty ** self.length_normalization_factor
-                            beam = Sequence(sentence, state,
+                            beam = Sequence(output, state,
                                             logprob, score, attention)
                             complete_sequences[b].push(beam)
                             num_hyp -= 1  # we can fit another hypotheses as this one is over
                         else:
-                            beam = Sequence(sentence, state,
+                            beam = Sequence(output, state,
                                             logprob, score, attention)
                             partial_sequences[b].push(beam)
                     idx += 1

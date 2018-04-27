@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 from .seq2seq_base import Seq2Seq
 from .recurrent import RecurrentEncoder, RecurrentAttentionDecoder
 from .transformer import TransformerAttentionEncoder, TransformerAttentionDecoder

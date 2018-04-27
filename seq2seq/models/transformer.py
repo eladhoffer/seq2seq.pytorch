@@ -1,9 +1,7 @@
 import math
 import torch
-from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
-from .modules.normalization import LayerNorm1d
 from .modules.attention import MultiHeadAttention
 from .seq2seq_base import Seq2Seq
 from seq2seq.tools.config import PAD
@@ -11,22 +9,20 @@ from .modules.state import State
 from .modules.weight_norm import weight_norm as wn
 
 
-def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4):
+def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4, offset=0):
     batch, length, channels = list(x.size())
     assert (channels % 2 == 0)
     num_timescales = channels // 2
     log_timescale_increment = (
         math.log(float(max_timescale) / float(min_timescale)) /
         (float(num_timescales) - 1.))
-    position = torch.arange(0, length).float()
-    inv_timescales = torch.arange(0, num_timescales).float()
-    if x.is_cuda:
-        position = position.cuda()
-        inv_timescales = inv_timescales.cuda()
+    position = torch.arange(offset, offset + length,
+                            device=x.device, dtype=torch.float)
+    inv_timescales = torch.arange(0, num_timescales,
+                                  device=x.device, dtype=torch.float)
 
     inv_timescales.mul_(-log_timescale_increment).exp_().mul_(min_timescale)
-    scaled_time = position.unsqueeze(1).expand(
-        length, num_timescales) * inv_timescales.unsqueeze(0).expand(length, num_timescales)
+    scaled_time = position.unsqueeze(1) * inv_timescales.unsqueeze(0)
     # scaled time is now length x num_timescales
     # length x channels
     signal = torch.cat([scaled_time.sin(), scaled_time.cos()], 1)
@@ -40,8 +36,8 @@ class EncoderBlock(nn.Module):
         super(EncoderBlock, self).__init__()
         wn_func = wn if weight_norm else lambda x: x
         if layer_norm:
-            self.lnorm1 = LayerNorm1d(hidden_size)
-            self.lnorm2 = LayerNorm1d(hidden_size)
+            self.lnorm1 = nn.LayerNorm(hidden_size)
+            self.lnorm2 = nn.LayerNorm(hidden_size)
         self.dropout = nn.Dropout(dropout)
         self.attention = MultiHeadAttention(
             hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, weight_norm=weight_norm)
@@ -74,9 +70,9 @@ class DecoderBlock(nn.Module):
         super(DecoderBlock, self).__init__()
         wn_func = wn if weight_norm else lambda x: x
         if layer_norm:
-            self.lnorm1 = LayerNorm1d(hidden_size)
-            self.lnorm2 = LayerNorm1d(hidden_size)
-            self.lnorm3 = LayerNorm1d(hidden_size)
+            self.lnorm1 = nn.LayerNorm(hidden_size)
+            self.lnorm2 = nn.LayerNorm(hidden_size)
+            self.lnorm3 = nn.LayerNorm(hidden_size)
         self.dropout = nn.Dropout(dropout)
         self.weight_norm = weight_norm
         self.attention = MultiHeadAttention(
@@ -94,10 +90,14 @@ class DecoderBlock(nn.Module):
         self.masked_attention.set_mask_q(mask)
         self.masked_attention.set_mask_k(mask)
 
-    def forward(self, inputs, context):
+    def forward(self, inputs, context, prev_inputs=None):
         x = inputs
+        if prev_inputs is None:
+            x_past = x
+        else:
+            x_past = torch.cat((prev_inputs, x), 1)
         res = x
-        x, _ = self.masked_attention(x, x, x)
+        x, _ = self.masked_attention(x, x_past, x_past)
         x = self.dropout(x).add_(res)
         x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
         res = x
@@ -109,7 +109,7 @@ class DecoderBlock(nn.Module):
         x = self.dropout(x).add_(res)
         x = self.lnorm3(x) if hasattr(self, 'lnorm3') else x
 
-        return x, attn_enc
+        return x, attn_enc, x_past
 
 
 class TransformerAttentionEncoder(nn.Module):
@@ -137,7 +137,7 @@ class TransformerAttentionEncoder(nn.Module):
         else:
             padding_mask = None
         x = self.embedder(inputs).mul_(self.scale_embedding)
-        x.add_(Variable(positional_embedding(x), requires_grad=False))
+        x.add_(positional_embedding(x))
         x = self.dropout(x)
 
         for block in self.blocks:
@@ -170,23 +170,33 @@ class TransformerAttentionDecoder(nn.Module):
 
     def forward(self, inputs, state, get_attention=False):
         context = state.context
+        prev_inputs = state.inputs
+        if prev_inputs is None:
+            prev_inputs = [None] * len(self.blocks)
+            time_step = 0
+        else:
+            time_step = prev_inputs[0].size(1)
+
         if self.mask_symbol is not None:
             padding_mask = inputs.eq(self.mask_symbol)
         else:
             padding_mask = None
         x = self.embedder(inputs).mul_(self.scale_embedding)
-        x.add_(Variable(positional_embedding(x), requires_grad=False))
+        x.add_(positional_embedding(x, offset=time_step))
         x = self.dropout(x)
 
         attention_scores = []
-        for block in self.blocks:
+        updated_inputs = []
+        for i, block in enumerate(self.blocks):
             block.set_mask(padding_mask, context.mask)
-            x, attn_enc = block(x, context.outputs)
+            x, attn_enc, prev_x = block(x, context.outputs, prev_inputs[i])
+            updated_inputs.append(prev_x)
             if get_attention:
                 attention_scores.append(attn_enc)
             else:
                 del attn_enc
         x = self.classifier(x)
+        state.inputs = tuple(updated_inputs)
         if get_attention:
             state.attention_score = attention_scores
         return x, state
@@ -229,9 +239,9 @@ class Transformer(Seq2Seq):
 
         if tie_embedding:
             self.encoder.embedder.weight = self.decoder.classifier.weight
-
-    def generate(self, input_list, state_list, k=1, feed_all_timesteps=True, get_attention=False):
-        # TODO cache computation, not inputs
-        return super(Transformer, self).generate(input_list, state_list, k=k,
-                                                 feed_all_timesteps=feed_all_timesteps,
-                                                 get_attention=get_attention)
+    #
+    # def generate(self, input_list, state_list, k=1, feed_all_timesteps=True, get_attention=False):
+    #     # TODO cache computation, not inputs
+    #     return super(Transformer, self).generate(input_list, state_list, k=k,
+    #                                              feed_all_timesteps=feed_all_timesteps,
+    #                                              get_attention=get_attention)

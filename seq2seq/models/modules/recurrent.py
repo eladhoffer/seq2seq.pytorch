@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 from .attention import AttentionLayer
 from .weight_drop import WeightDrop
 from .weight_norm import weight_norm as wn
+from torch.nn.utils.rnn import PackedSequence
 
 
 def Recurrent(mode, input_size, hidden_size,
@@ -105,9 +105,10 @@ def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False, weight_
 
 class StackedRecurrent(nn.Sequential):
 
-    def __init__(self, residual=False):
+    def __init__(self, dropout=0, residual=False):
         super(StackedRecurrent, self).__init__()
         self.residual = residual
+        self.dropout = dropout
 
     def forward(self, inputs, hidden=None):
         hidden = hidden or tuple([None] * len(self))
@@ -119,6 +120,12 @@ class StackedRecurrent(nn.Sequential):
                 inputs = output + inputs
             else:
                 inputs = output
+            if isinstance(inputs, PackedSequence):
+                data = nn.functional.dropout(inputs.data, self.dropout, self.training)
+                inputs = PackedSequence(data, inputs.batch_sizes)
+            else:
+                inputs = nn.functional.dropout(inputs, self.dropout, self.training)
+
         return output, tuple(next_hidden)
 
 
@@ -166,7 +173,7 @@ class StackedCell(nn.Module):
             next_hidden_i = layer(inputs, select_layer(hidden, i))
             output = next_hidden_i[0] if isinstance(next_hidden_i, tuple) \
                 else next_hidden_i
-            if i + 1 != self.num_layers:
+            if i + 1 < self.num_layers:
                 output = self.dropout(output)
             if self.residual and inputs.size(-1) == output.size(-1):
                 inputs = output + inputs
@@ -228,8 +235,7 @@ class ZoneOutCell(nn.Module):
                 if not isinstance(prob, tuple):
                     prob = tuple([prob] * num_h)
                 return tuple([zoneout(h[i], next_h[i], prob[i]) for i in range(num_h)])
-            mask = Variable(h.data.new(h.size()).bernoulli_(
-                prob), requires_grad=False)
+            mask = h.new_tensor(h.size()).bernoulli_(prob)
             return mask * next_h + (1 - mask) * h
 
         next_hidden = self.cell(inputs, hidden)
@@ -286,9 +292,9 @@ class TimeRecurrentCell(nn.Module):
             num_layers = getattr(self.cell, 'num_layers', 1)
             zero = inputs.data.new(1).zero_()
             h0 = zero.view(1, 1, 1).expand(num_layers, batch_size, hidden_size)
-            hidden = Variable(h0, requires_grad=False)
+            hidden = h0
             if self.lstm:
-                hidden = (hidden, Variable(h0, requires_grad=False))
+                hidden = (hidden, h0)
         if self.with_attention and \
             (not isinstance(hidden, tuple)
              or self.lstm and not isinstance(hidden[0], tuple)):
@@ -296,7 +302,7 @@ class TimeRecurrentCell(nn.Module):
             zero = inputs.data.new(1).zero_()
             attn_size = self.cell.attention.output_size
             a0 = zero.view(1, 1).expand(batch_size, attn_size)
-            hidden = (hidden, Variable(a0, requires_grad=False))
+            hidden = (hidden, a0)
 
         outputs = []
         attentions = []

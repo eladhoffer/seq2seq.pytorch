@@ -74,16 +74,22 @@ class MultiLanguageDataset(object):
                     code_file = code_files or '{prefix}.{tok}.shared_codes_{num_symbols}_{languages}'.format(
                         prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
                     self.code_files = {l: code_file for l in languages}
-            else:
-                num_symbols = ''
 
-            if not shared_vocab:
-                self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab_{num_symbols}'.format(
-                    prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
+                if not shared_vocab:
+                    self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab_{num_symbols}'.format(
+                        prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
+                else:
+                    vocab = vocab_files or '{prefix}.{tok}.shared_vocab_{num_symbols}_{languages}'.format(
+                        prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
+                    self.vocab_files = {l: vocab for l in languages}
             else:
-                vocab = vocab_files or '{prefix}.{tok}.shared_vocab_{num_symbols}_{languages}'.format(
-                    prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
-                self.vocab_files = {l: vocab for l in languages}
+                if not shared_vocab:
+                    self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab'.format(
+                        prefix=prefix, lang=l, tok=tokenization) for l in languages}
+                else:
+                    vocab = vocab_files or '{prefix}.{tok}.shared_vocab_{languages}'.format(
+                        prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)))
+                    self.vocab_files = {l: vocab for l in languages}
             self.generate_tokenizers()
 
         if load_data:
@@ -110,7 +116,6 @@ class MultiLanguageDataset(object):
             else:
                 tokz = self.__tokenizers[self.tokenization](
                     vocab_file=self.vocab_files[l],
-                    vocab_limit=self.vocab_limit,
                     additional_tokens=additional_tokens)
 
             if not hasattr(tokz, 'vocab'):
@@ -144,7 +149,6 @@ class MultiLanguageDataset(object):
         new_dataset = copy(self)
         new_dataset.datasets = dict(
             {l: d.select_range(start, end) for (l, d) in self.datasets.items()})
-        print(len(new_dataset))
         return new_dataset
 
     def __getitem__(self, index):

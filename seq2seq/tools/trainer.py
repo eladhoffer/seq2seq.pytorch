@@ -6,8 +6,7 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 from torch.nn.parallel import DataParallel
-from torch.autograd import Variable
-from torch.nn.utils import clip_grad_norm
+from torch.nn.utils import clip_grad_norm_
 import shutil
 import math
 import numpy as np
@@ -67,8 +66,9 @@ class Seq2SeqTrainer(object):
                  checkpoint_filename='checkpoint%s.pth.tar',
                  keep_checkpoints=5,
                  avg_loss_time=True,
-                 devices=None,
-                 cuda=True):
+                 dtype=torch.float,
+                 device_ids=None,
+                 device="cuda"):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
         self.criterion = criterion or CrossEntropyLoss(
@@ -80,17 +80,18 @@ class Seq2SeqTrainer(object):
         self.epoch = 0
         self.training_steps = 0
         self.save_info = save_info
-        self.cuda = cuda
+        self.device = device
+        self.dtype = dtype
         self.limit_num_tokens = limit_num_tokens
         self.print_freq = print_freq
         self.eval_freq = eval_freq
         self.perplexity = float('inf')
-        self.devices = devices
+        self.device_ids = device_ids
         self.avg_loss_time = avg_loss_time
         self.model_with_loss = AddLossModule(self.model, self.criterion)
-        if isinstance(self.devices, tuple):
+        if isinstance(self.device_ids, tuple):
             self.model_with_loss = DataParallel(self.model_with_loss,
-                                                self.devices,
+                                                self.device_ids,
                                                 dim=0 if self.batch_first else 1)
         self.save_path = save_path
         self.save_freq = save_freq
@@ -131,48 +132,42 @@ class Seq2SeqTrainer(object):
             (B, limit_num, Tsrc, Ttarget))
         return src, target
 
-    def iterate(self, src, target, training=True):
+    def iterate(self, src_tuple, target_tuple, training=True):
         # limit number of tokens o avoid gpu overload
         if self.limit_num_tokens is not None:
-            src, target = self._batch_limit_tokens(src, target)
-        src, src_length = src
-        target, target_length = target
+            src_tuple, target_tuple = self._batch_limit_tokens(
+                src_tuple, target_tuple)
+        src, src_length = src_tuple
+        target, target_length = target_tuple
         batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
         num_words = sum(target_length) - target.size(batch_dim)
 
-        # Allow packed source sequences - for cudnn rnns
-        if isinstance(src, PackedSequence):
-            src_pack = src
-            src = src.data
-        else:
-            src_pack = None
-
-        if self.cuda and not isinstance(self.model_with_loss, DataParallel):
-            src = src.cuda()
-            target = target.cuda()
-
-        src_var = Variable(src, volatile=not training)
-        target_var = Variable(target, volatile=not training)
-
-        if src_pack is not None:
-            src_var = PackedSequence(src_var, src_pack[1])
+        if isinstance(src, PackedSequence) or \
+                not isinstance(self.model_with_loss, DataParallel):
+            if isinstance(src, PackedSequence):
+                src = PackedSequence(src.data.to(self.device),
+                                     src.batch_sizes.to(self.device))
+            else:
+                src = src.to(self.device)
+            target = target.to(self.device)
 
         if self.batch_first:
-            inputs = (src_var, target_var[:, :-1])
-            target_labels = target_var[:, 1:].contiguous()
+            inputs = (src, target[:, :-1])
+            target_labels = target[:, 1:].contiguous()
         else:
-            inputs = (src_var, target_var[:-1])
-            target_labels = target_var[1:]
+            inputs = (src, target[:-1])
+            target_labels = target[1:]
 
         # compute output
         loss, accuracy = self.model_with_loss(inputs, target_labels)
+
         loss = loss.sum()
-        loss_measure = loss.data[0] / num_words
+        loss_measure = float(loss / num_words)
         if self.avg_loss_time:
             loss /= num_words
         else:
             loss /= target.size(batch_dim)
-        accuracy = accuracy.sum().float() / num_words
+        accuracy = float(accuracy.sum().float() / num_words)
 
         if training:
             # compute gradient and do SGD step
@@ -183,22 +178,22 @@ class Seq2SeqTrainer(object):
                     clip_encoder = self.grad_clip.get('encoder', 0)
                     clip_decoder = self.grad_clip.get('decoder', 0)
                     if clip_encoder > 0:
-                        clip_grad_norm(
+                        clip_grad_norm_(
                             self.model.encoder.parameters(), clip_encoder)
                     if clip_decoder > 0:
-                        clip_grad_norm(
+                        clip_grad_norm_(
                             self.model.decoder.parameters(), clip_decoder)
                 elif self.grad_clip > 0:  # grad_clip is a number
-                    clip_grad_norm(self.model.parameters(), self.grad_clip)
+                    clip_grad_norm_(self.model.parameters(), self.grad_clip)
             if self.embedding_grad_clip is not None and self.embedding_grad_clip > 0:
                 if hasattr(self.model.encoder, 'embedder'):
-                    clip_grad_norm(self.model.encoder.embedder.parameters(),
-                                   self.embedding_grad_clip)
+                    clip_grad_norm_(self.model.encoder.embedder.parameters(),
+                                    self.embedding_grad_clip)
                 if hasattr(self.model.decoder, 'embedder'):
-                    clip_grad_norm(self.model.decoder.embedder.parameters(),
-                                   self.embedding_grad_clip)
+                    clip_grad_norm_(self.model.decoder.embedder.parameters(),
+                                    self.embedding_grad_clip)
             self.optimizer.step()
-        return loss_measure, accuracy.data[0], num_words
+        return loss_measure, accuracy, num_words
 
     def _feed_data(self, data_loader, num_iterations=None, training=True):
         if training:
@@ -273,8 +268,9 @@ class Seq2SeqTrainer(object):
     def evaluate(self, data_loader):
         # switch to evaluate mode
         self.model.eval()
-        for r in self._feed_data(data_loader, training=False):
-            result = r
+        with torch.no_grad():
+            for r in self._feed_data(data_loader, training=False):
+                result = r
         return result
 
     def run(self, train_loader, val_loader=None):

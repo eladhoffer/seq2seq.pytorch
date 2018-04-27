@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
 from .seq2seq_base import Seq2Seq
 from .recurrent import RecurrentDecoder, RecurrentAttentionDecoder, RecurrentEncoder
 from .modules.vision_encoders import AlexNetEncoder, ResNetEncoder, DenseNetEncoder, VGGEncoder, SqueezeNetEncoder

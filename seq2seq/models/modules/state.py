@@ -1,5 +1,15 @@
 import torch
-from torch.autograd import Variable
+
+
+def is_empty(x):
+    if x is None:
+        return True
+    if isinstance(x, tuple) or isinstance(x, list):
+        return all([is_empty(x_i) for x_i in x])
+    if isinstance(x, State):
+        return all([is_empty(getattr(x, s))
+                    for s in State.__slots__ if s is not 'batch_first'])
+    return False
 
 
 class State(object):
@@ -20,12 +30,15 @@ class State(object):
     def __select_state(self, state, i, type_state='hidden'):
         if isinstance(state, tuple):
             return tuple(self.__select_state(s, i, type_state) for s in state)
-        elif isinstance(state, Variable) or torch.is_tensor(state):
+        elif torch.is_tensor(state):
             if type_state == 'hidden':
                 batch_dim = 0 if state.dim() < 3 else 1
             else:
                 batch_dim = 0 if self.batch_first else 1
-            return state.narrow(batch_dim, i, 1)
+            if state.size(batch_dim) > i:
+                return state.narrow(batch_dim, i, 1)
+            else:
+                return None
         else:
             return state
 
@@ -37,7 +50,7 @@ class State(object):
         if isinstance(state_list[0], tuple):
             return tuple([self.__merge_states(s, type_state) for s in zip(*state_list)])
         else:
-            if isinstance(state_list[0], Variable) or torch.is_tensor(state_list[0]):
+            if torch.is_tensor(state_list[0]):
                 if type_state == 'hidden':
                     batch_dim = 0 if state_list[0].dim() < 3 else 1
                 else:
@@ -62,6 +75,16 @@ class State(object):
                     selected_value = self.__select_state(value, index, s)
                 setattr(item, s, selected_value)
             return item
+
+    def as_list(self):
+        i = 0
+        out_list = []
+        item = self.__getitem__(i)
+        while not is_empty(item):
+            out_list.append(item)
+            i += 1
+            item = self.__getitem__(i)
+        return out_list
 
     def from_list(self, state_list):
         for s in self.__slots__:

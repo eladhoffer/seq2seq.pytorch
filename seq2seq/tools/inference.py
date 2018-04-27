@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import torch
-from torch.autograd import Variable
 from .config import EOS, BOS, LANGUAGE_TOKENS
 from .beam_search import SequenceGenerator
 from torch.nn.functional import adaptive_avg_pool2d
@@ -67,13 +66,12 @@ class Translator(object):
                  length_normalization_factor=0,
                  max_sequence_length=50,
                  get_attention=False,
-                 cuda=None):
+                 device="cpu"):
         assert checkpoint is not None or \
             model is not None and src_tok is not None and target_tok is not None, \
             "supply either a checkpoint dictionary or model and tokenizers"
         if checkpoint is not None:
             config = checkpoint['config']
-            self.pack_encoder_inputs = config.pack_encoder_inputs
             self.model = getattr(models, config.model)(**config.model_config)
             self.model.load_state_dict(checkpoint['state_dict'])
             self.src_tok, self.target_tok = checkpoint['tokenizers'].values()
@@ -81,23 +79,20 @@ class Translator(object):
             self.model = model
             self.src_tok = src_tok
             self.target_tok = target_tok
-            self.pack_encoder_inputs = False
         self.insert_target_start = [BOS]
         self.insert_src_start = [BOS]
         self.insert_src_end = [EOS]
         self.get_attention = get_attention
-        self.cuda = torch.cuda.is_available() if cuda is None else cuda
-        if self.cuda:
-            self.model.cuda()
-        else:
-            self.model.cpu()
+        self.device = device
+        self.model.to(self.device)
         self.model.eval()
-        self.generator = SequenceGenerator(
-            model=self.model,
-            beam_size=beam_size,
-            max_sequence_length=max_sequence_length,
-            get_attention=get_attention,
-            length_normalization_factor=length_normalization_factor)
+
+        self.beam_size = beam_size
+        self.max_sequence_length = max_sequence_length
+        self.get_attention = get_attention
+        self.length_normalization_factor = length_normalization_factor
+        self.pack_encoder_inputs = getattr(self.model.encoder, 'pack_inputs',
+                                           False)
 
     def set_src_language(self, language=None):
         if language is None:
@@ -126,17 +121,6 @@ class Translator(object):
                                          insert_start=self.insert_src_start,
                                          insert_end=self.insert_src_end)
                    for sentence in input_sentences]
-        if target_priming is None:
-            bos = [self.insert_target_start] * batch
-        else:
-            if isinstance(target_priming, list):
-                bos = [list(self.target_tok.tokenize(priming,
-                                                     insert_start=self.insert_target_start))
-                       for priming in target_priming]
-            else:
-                bos = self.target_tok.tokenize(target_priming,
-                                               insert_start=self.insert_target_start)
-                bos = [list(bos)] * batch
 
         order = range(batch)
         if self.pack_encoder_inputs:
@@ -145,27 +129,32 @@ class Translator(object):
                 enumerate(src_tok), key=lambda x: x[1].numel(), reverse=True))
             order = [sorted_idx.index(i) for i in order]
 
+        if target_priming is None:
+            bos = [self.insert_target_start] * batch
+        else:
+            if isinstance(target_priming, list):
+                bos = [list(self.target_tok.tokenize(target_priming[i],
+                                                     insert_start=self.insert_target_start))
+                       for i in order]
+            else:
+                bos = self.target_tok.tokenize(target_priming,
+                                               insert_start=self.insert_target_start)
+                bos = [list(bos)] * batch
+
         src = batch_sequences(src_tok,
                               sort=False,
                               pack=self.pack_encoder_inputs,
+                              device=self.device,
                               batch_first=self.model.encoder.batch_first)[0]
 
-        # Allow packed source sequences - for cudnn rnns
-        if isinstance(src, PackedSequence):
-            src_var = Variable(src[0].cuda() if self.cuda else src[0],
-                               volatile=True)
-            src = PackedSequence(src_var, src[1])
-        elif self.cuda:
-            src = Variable(src.cuda() if self.cuda else src, volatile=True)
-        context = self.model.encode(src)
-
-        if hasattr(self.model, 'bridge'):
-            state = self.model.bridge(context)
-
-        state_list = [state[idx] for idx in order]
-        seqs = self.generator.beam_search(bos, state_list)
+        with torch.no_grad():
+            seqs = self.model.generate(src, bos,
+                                       beam_size=self.beam_size,
+                                       max_sequence_length=self.max_sequence_length,
+                                       length_normalization_factor=self.length_normalization_factor,
+                                       get_attention=self.get_attention, devices=None)
         # remove forced  tokens
-        preds = [s.sentence[len(self.insert_target_start):] for s in seqs]
+        preds = [s.output[len(self.insert_target_start):] for s in seqs]
         output = [self.target_tok.detokenize(p[:-1]) for p in preds]
 
         output = output[0] if flatten else output
@@ -194,13 +183,13 @@ class CaptionGenerator(Translator):
                  length_normalization_factor=0,
                  max_sequence_length=50,
                  get_attention=False,
-                 cuda=None):
+                 device="cpu"):
         super(CaptionGenerator, self).__init__(checkpoint=checkpoint,
                                                model=model, target_tok=target_tok,
                                                beam_size=beam_size,
                                                length_normalization_factor=length_normalization_factor,
                                                max_sequence_length=max_sequence_length,
-                                               get_attention=get_attention, cuda=cuda)
+                                               get_attention=get_attention, device=device)
         self.img_transform = img_transform or self.src_tok(
             allow_var_size=False, train=False)
 
@@ -213,9 +202,7 @@ class CaptionGenerator(Translator):
 
         bos = self.target_tok.tokenize(
             target_priming, insert_start=self.insert_target_start)
-        src = Variable(src_img.unsqueeze(0).unsqueeze(0), volatile=True)
-        if self.cuda:
-            src = src.cuda()
+        src = src_img.unsqueeze(0).unsqueeze(0).to(self.device)
         if target_priming is None:
             bos = self.insert_target_start
         else:
@@ -227,13 +214,13 @@ class CaptionGenerator(Translator):
         [seq] = self.generator.beam_search([bos], [state])
         # remove forced  tokens
         output = self.target_tok.detokenize(
-            seq.sentence[len(self.insert_target_start):-1])
+            seq.output[len(self.insert_target_start):-1])
         if len(target_priming) > 0:
             output = [' '.join([target_priming, o]) for o in output]
         if seq.attention is not None:
             _, c, h, w = list(state.outputs.size())
             attentions = torch.stack([a.view(h, w) for a in seq.attention], 0)
-            preds = seq.sentence[len(self.insert_target_start):]
+            preds = seq.output[len(self.insert_target_start):]
             preds = [self.target_tok.idx2word(idx) for idx in preds]
             return output, (attentions, preds)
         else:

@@ -37,35 +37,35 @@ parser.add_argument('--model', metavar='MODEL', default='RecurrentAttentionSeq2S
                     ' (default: RecurrentAttentionSeq2Seq)')
 parser.add_argument('--model_config', default="{'hidden_size:256','num_layers':2}",
                     help='architecture configuration')
-parser.add_argument('--devices', default='0',
-                    help='device assignment (e.g "0,1", {"encoder":0, "decoder":1})')
+parser.add_argument('--device_ids', default='0',
+                    help='device ids assignment (e.g "0,1", {"encoder":0, "decoder":1})')
+parser.add_argument('--device', default='cuda',
+                    help='device assignment ("cpu" or "cuda")')
 parser.add_argument('--trainer', metavar='TRAINER', default='Seq2SeqTrainer',
                     choices=trainers.__all__,
                     help='trainer used: ' +
                     ' | '.join(trainers.__all__) +
                     ' (default: Seq2SeqTrainer)')
-parser.add_argument('--type', default='torch.cuda.FloatTensor',
+parser.add_argument('--dtype', default='torch.float',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
 parser.add_argument('-j', '--workers', default=8, type=int,
                     help='number of data loading workers (default: 8)')
-parser.add_argument('--epochs', default=90, type=int,
+parser.add_argument('--epochs', default=100, type=int,
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     help='mini-batch size (default: 32)')
-parser.add_argument('--pack_encoder_inputs', action='store_true',
-                    help='pack encoder inputs for rnns')
 parser.add_argument('--optimization_config',
                     default="[{'epoch':0, 'optimizer':'SGD', 'lr':0.1, 'momentum':0.9}]",
                     type=str, metavar='OPT',
                     help='optimization regime used')
 parser.add_argument('--print-freq', default=50, type=int,
-                    help='print frequency (default: 10)')
+                    help='print frequency (default: 50)')
 parser.add_argument('--save-freq', default=1000, type=int,
-                    help='save frequency (default: 10)')
+                    help='save frequency (default: 1000)')
 parser.add_argument('--eval-freq', default=2500, type=int,
-                    help='evaluation frequency (default: 10)')
+                    help='evaluation frequency (default: 2500)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
@@ -101,17 +101,19 @@ def main(args):
     logging.info("saving to %s", save_path)
     logging.debug("run arguments: %s", args)
 
-    args.devices = literal_eval(args.devices)
-    if 'cuda' in args.type:
+    args.device_ids = literal_eval(args.device_ids)
+    device = args.device
+    if 'cuda' in args.device:
         main_gpu = 0
-        if isinstance(args.devices, tuple):
-            main_gpu = args.devices[0]
-        elif isinstance(args.devices, int):
-            main_gpu = args.devices
-        elif isinstance(args.devices, dict):
-            main_gpu = args.devices.get('input', 0)
+        if isinstance(args.device_ids, tuple):
+            main_gpu = args.device_ids[0]
+        elif isinstance(args.device_ids, int):
+            main_gpu = args.device_ids
+        elif isinstance(args.device_ids, dict):
+            main_gpu = args.device_ids.get('input', 0)
         torch.cuda.set_device(main_gpu)
         cudnn.benchmark = True
+        device = torch.device(device, main_gpu)
 
     dataset = getattr(datasets, args.dataset)
     args.data_config = literal_eval(args.data_config)
@@ -132,16 +134,18 @@ def main(args):
     args.model_config = model_config
 
     model = getattr(models, args.model)(**model_config)
+    model.to(device)
     batch_first = getattr(model, 'batch_first', False)
 
     logging.info(model)
+    pack_encoder_inputs = getattr(model.encoder, 'pack_inputs', False)
 
     # define data loaders
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          batch_first=batch_first,
                                          shuffle=True,
                                          augment=True,
-                                         pack=args.pack_encoder_inputs,
+                                         pack=pack_encoder_inputs,
                                          max_length=args.max_length,
                                          max_tokens=args.max_tokens,
                                          num_workers=args.workers)
@@ -149,7 +153,7 @@ def main(args):
                                      batch_first=batch_first,
                                      shuffle=False,
                                      augment=False,
-                                     pack=args.pack_encoder_inputs,
+                                     pack=pack_encoder_inputs,
                                      max_length=args.max_length,
                                      max_tokens=args.max_tokens,
                                      num_workers=args.workers)
@@ -163,7 +167,9 @@ def main(args):
                    'config': args},
         regime=regime,
         limit_num_tokens=args.limit_num_tokens,
-        devices=args.devices,
+        device_ids=args.device_ids,
+        device=device,
+        dtype=args.dtype,
         print_freq=args.print_freq,
         save_freq=args.save_freq,
         eval_freq=args.eval_freq)
@@ -173,7 +179,6 @@ def main(args):
     num_parameters = sum([l.nelement() for l in model.parameters()])
     logging.info("number of parameters: %d", num_parameters)
 
-    model.type(args.type)
     if args.uniform_init is not None:
         for param in model.parameters():
             param.data.uniform_(args.uniform_init, -args.uniform_init)
@@ -186,7 +191,6 @@ def main(args):
     elif args.resume:
         checkpoint_file = args.resume
         if os.path.isdir(checkpoint_file):
-            results.load(os.path.join(checkpoint_file, 'results.csv'))
             checkpoint_file = os.path.join(
                 checkpoint_file, 'model_best.pth.tar')
         if os.path.isfile(checkpoint_file):

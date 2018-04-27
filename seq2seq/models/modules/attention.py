@@ -75,6 +75,7 @@ class AttentionLayer(nn.Module):
         return out
 
     def forward(self, query, keys, values=None):
+
         if not self.batch_first:
             keys = keys.transpose(0, 1)
             if values is not None:
@@ -99,9 +100,11 @@ class AttentionLayer(nn.Module):
             att_query = query
 
         scores = self.calc_score(att_query, keys)  # size b x t_q x t_k
+
         if self.mask is not None:
             mask = self.mask.unsqueeze(1).expand(b, t_q, t_k)
             scores.masked_fill_(mask, -1e12)
+
 
         # Normalize the scores
         scores_normalized = F.softmax(scores, dim=2)
@@ -158,7 +161,7 @@ class SDPAttention(nn.Module):
         qk = torch.bmm(q, k.transpose(1, 2))  # b x t_q x t_k
         qk.div_(dim_k ** 0.5)
         mask = None
-        if self.causal:
+        if self.causal and t_q > 1:
             causal_mask = q.data.new(t_q, t_k).byte().fill_(1).triu_(1)
             mask = Variable(causal_mask.unsqueeze(0).expand(b, t_q, t_k),
                             requires_grad=False)
