@@ -219,20 +219,30 @@ class Seq2SeqTrainer(object):
                 # update optimizer according to epoch and steps
                 self.optimizer.update(self.epoch, self.training_steps)
 
-            # do a train/evaluate iteration
-            loss, acc, num_words = self.iterate(src, target, training=training)
+            try:
+                # do a train/evaluate iteration
+                loss, acc, num_words = self.iterate(src, target,
+                                                    training=training)
 
-            # measure accuracy and record loss
-            losses.update(loss, num_words)
-            perplexity.update(math.exp(loss), num_words)
-            accuracy.update(acc, num_words)
+                # measure accuracy and record loss
+                losses.update(loss, num_words)
+                perplexity.update(math.exp(loss), num_words)
+                accuracy.update(acc, num_words)
 
-            # measure elapsed time
-            elapsed = time.time() - end
-            batch_time.update(elapsed)
-            tok_time.update(num_words / elapsed, num_words)
+                # measure elapsed time
+                elapsed = time.time() - end
+                batch_time.update(elapsed)
+                tok_time.update(num_words / elapsed, num_words)
 
-            end = time.time()
+                end = time.time()
+            except RuntimeError as err:
+                if training and 'out of memory' in str(err):
+                    logging.info(
+                        'WARNING: ran out of memory, skipping batch')
+                    torch.cuda.empty_cache()
+                else:
+                    raise err
+
             last_iteration = (i == len(data_loader) - 1)
             if i > 0 or last_iteration:
                 if i % self.print_freq == 0 or last_iteration:
