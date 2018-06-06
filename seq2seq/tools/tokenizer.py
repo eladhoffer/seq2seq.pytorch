@@ -104,7 +104,7 @@ class Tokenizer(object):
 
     def tokenize(self, line, insert_start=None, insert_end=None):
         """tokenize a line, insert_start and insert_end are lists of tokens"""
-        if self.pre_tokenize is not None:
+        if getattr(self, 'pre_tokenize', None) is not None:
             line = self.pre_tokenize(line)
         inputs = self.segment(line)
         targets = []
@@ -118,7 +118,7 @@ class Tokenizer(object):
 
     def detokenize(self, inputs, delimiter=u' '):
         outputs = delimiter.join([self.idx2word(idx) for idx in inputs])
-        if self.post_tokenize is not None:
+        if getattr(self, 'post_tokenize', None) is not None:
             outputs = self.post_tokenize(outputs)
         return outputs
 
@@ -175,6 +175,7 @@ class BPETokenizer(Tokenizer):
         self.set_bpe(self.codes_file)
 
     def detokenize(self, inputs, delimiter=' '):
+        self.separator = getattr(self, 'separator', '@@')
         detok_string = super(BPETokenizer, self).detokenize(inputs, delimiter)
         try:
             detok_string = detok_string.decode('utf-8')
