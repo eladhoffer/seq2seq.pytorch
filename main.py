@@ -9,6 +9,8 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
 from seq2seq import models, datasets
 from seq2seq.tools.utils.log import setup_logging
 from seq2seq.tools.config import PAD
@@ -56,6 +58,14 @@ parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     help='mini-batch size (default: 32)')
+parser.add_argument('--world-size', default=-1, type=int,
+                    help='number of distributed processes')
+parser.add_argument('--local_rank', default=-1, type=int,
+                    help='rank of distributed processes')
+parser.add_argument('--dist-init', default='env://', type=str,
+                    help='init used to set up distributed training')
+parser.add_argument('--dist-backend', default='nccl', type=str,
+                    help='distributed backend')
 parser.add_argument('--optimization_config',
                     default="[{'epoch':0, 'optimizer':'SGD', 'lr':0.1, 'momentum':0.9}]",
                     type=str, metavar='OPT',
@@ -98,10 +108,17 @@ def main(args):
 
     setup_logging(os.path.join(save_path, 'log.txt'))
 
+    args.distributed = args.local_rank >= 0 or args.world_size > 1
+    if args.distributed:
+        args.device_ids = args.local_rank
+        dist.init_process_group(backend=args.dist_backend, init_method=args.dist_init,
+                                world_size=args.world_size, rank=args.local_rank)
+    else:
+        args.device_ids = literal_eval(args.device_ids)
+
     logging.info("saving to %s", save_path)
     logging.debug("run arguments: %s", args)
 
-    args.device_ids = literal_eval(args.device_ids)
     device = args.device
     if 'cuda' in args.device:
         main_gpu = 0
@@ -134,6 +151,7 @@ def main(args):
     args.model_config = model_config
 
     model = getattr(models, args.model)(**model_config)
+
     model.to(device)
     batch_first = getattr(model, 'batch_first', False)
 
@@ -141,10 +159,15 @@ def main(args):
     pack_encoder_inputs = getattr(model.encoder, 'pack_inputs', False)
 
     # define data loaders
+    if args.distributed:
+        train_sampler = DistributedSampler(train_data)
+    else:
+        train_sampler = None
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          batch_first=batch_first,
-                                         shuffle=True,
+                                         shuffle=train_sampler is None,
                                          augment=True,
+                                         sampler=train_sampler,
                                          pack=pack_encoder_inputs,
                                          max_length=args.max_length,
                                          max_tokens=args.max_tokens,
@@ -167,6 +190,8 @@ def main(args):
                    'config': args},
         regime=regime,
         limit_num_tokens=args.limit_num_tokens,
+        distributed=args.distributed,
+        dist_local_rank=args.local_rank,
         device_ids=args.device_ids,
         device=device,
         dtype=args.dtype,

@@ -5,7 +5,7 @@ from itertools import chain, cycle
 from copy import deepcopy
 import torch
 import torch.nn as nn
-from torch.nn.parallel import DataParallel
+from torch.nn.parallel import DataParallel, DistributedDataParallel
 from torch.nn.utils import clip_grad_norm_
 import shutil
 import math
@@ -14,6 +14,7 @@ from .utils.log import ResultsLog
 from .utils.optim import OptimRegime
 from .utils.meters import AverageMeter
 from .utils.cross_entropy import CrossEntropyLoss
+from .utils.functions import negate_grad
 
 from .config import PAD
 from torch.nn.utils.rnn import PackedSequence
@@ -32,7 +33,7 @@ class AddLossModule(nn.Module):
         self.ignore_index = ignore_index
 
     def forward(self, module_inputs, target):
-        output = self.module(*module_inputs)
+        output, state = self.module(*module_inputs)
         output = output.view(-1, output.size(2))
         target = target.view(-1)
         loss = self.criterion(output, target).view(1, 1)
@@ -66,6 +67,8 @@ class Seq2SeqTrainer(object):
                  checkpoint_filename='checkpoint%s.pth.tar',
                  keep_checkpoints=5,
                  avg_loss_time=True,
+                 distributed=False,
+                 dist_local_rank=0,
                  dtype=torch.float,
                  device_ids=None,
                  device="cuda"):
@@ -89,10 +92,17 @@ class Seq2SeqTrainer(object):
         self.device_ids = device_ids
         self.avg_loss_time = avg_loss_time
         self.model_with_loss = AddLossModule(self.model, self.criterion)
-        if isinstance(self.device_ids, tuple):
-            self.model_with_loss = DataParallel(self.model_with_loss,
-                                                self.device_ids,
-                                                dim=0 if self.batch_first else 1)
+        self.distributed = distributed
+        if distributed:
+            self.model_with_loss = DistributedDataParallel(
+                self.model_with_loss,
+                device_ids=[dist_local_rank],
+                output_device=dist_local_rank)
+        else:
+            if isinstance(self.device_ids, tuple):
+                self.model_with_loss = DataParallel(self.model_with_loss,
+                                                    self.device_ids,
+                                                    dim=0 if self.batch_first else 1)
         self.save_path = save_path
         self.save_freq = save_freq
         self.checkpoint_filename = checkpoint_filename
@@ -215,6 +225,8 @@ class Seq2SeqTrainer(object):
 
             if training:
                 self.epoch += 1. / len(data_loader)
+                if self.distributed:
+                    data_loader.sampler.set_epoch(int(math.floor(self.epoch)))
                 self.training_steps += 1
                 # update optimizer according to epoch and steps
                 self.optimizer.update(self.epoch, self.training_steps)
@@ -257,8 +269,10 @@ class Seq2SeqTrainer(object):
                                      phase='TRAINING' if training else 'EVALUATING',
                                      batch_time=batch_time, data_time=data_time, tok_time=tok_time,
                                      loss=losses, acc=accuracy, perplexity=perplexity))
+
                 if training and (i % self.save_freq == 0 or last_iteration):
                     self.save(identifier=next(counter))
+
                 if i % num_iterations == 0 or last_iteration:
                     yield {'loss': losses.avg, 'accuracy': accuracy.avg, 'perplexity': perplexity.avg}
                     losses.reset()
