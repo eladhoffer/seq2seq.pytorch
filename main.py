@@ -106,9 +106,10 @@ def main(args):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    setup_logging(os.path.join(save_path, 'log.txt'))
-
     args.distributed = args.local_rank >= 0 or args.world_size > 1
+    setup_logging(os.path.join(save_path, 'log.txt'),
+                  dummy=args.distributed and args.local_rank > 0)
+
     if args.distributed:
         args.device_ids = args.local_rank
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_init,
