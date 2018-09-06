@@ -14,7 +14,6 @@ from .utils.log import ResultsLog
 from .utils.optim import OptimRegime
 from .utils.meters import AverageMeter
 from .utils.cross_entropy import CrossEntropyLoss
-from .utils.functions import negate_grad
 
 from .config import PAD
 from torch.nn.utils.rnn import PackedSequence
@@ -33,7 +32,7 @@ class AddLossModule(nn.Module):
         self.ignore_index = ignore_index
 
     def forward(self, module_inputs, target):
-        output, state = self.module(*module_inputs)
+        output = self.module(*module_inputs)
         output = output.view(-1, output.size(2))
         target = target.view(-1)
         loss = self.criterion(output, target).view(1, 1)
