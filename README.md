@@ -7,7 +7,13 @@ Using this code you can train:
 * Image to caption generation
 * Skip-thought sentence representations
 * And more...
-
+ 
+ ## Installation:
+ ```
+ git clone --recursive https://github.com/eladhoffer/seq2seq.pytorch
+ cd seq2seq.pytorch; python setup.py develop
+ ```
+ 
 ## Models
 Models currently available:
 * Simple Seq2Seq recurrent model
