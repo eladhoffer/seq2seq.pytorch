@@ -15,7 +15,7 @@ def Recurrent(mode, input_size, hidden_size,
                   dropout=dropout, bidirectional=bidirectional)
     need_to_wrap = attention_layer is not None \
         or zoneout is not None \
-        or mode not in ['LSTM', 'GRU']
+        or mode not in ['LSTM', 'GRU', 'RNN']
     wn_func = wn if weight_norm else lambda x: x
 
     if need_to_wrap:
@@ -72,6 +72,8 @@ def Recurrent(mode, input_size, hidden_size,
             rnn = nn.LSTM
         elif mode == 'GRU':
             rnn = nn.GRU
+        elif mode == 'RNN':
+            rnn = nn.RNN
         else:
             raise Exception('Unknown mode: {}'.format(mode))
         if residual:

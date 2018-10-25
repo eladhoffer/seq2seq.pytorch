@@ -1,121 +1,15 @@
-import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from .modules.attention import MultiHeadAttention
 from .seq2seq_base import Seq2Seq
 from seq2seq.tools.config import PAD
 from .modules.state import State
-from .modules.weight_norm import weight_norm as wn
-
-
-def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4, offset=0):
-    batch, length, channels = list(x.size())
-    assert (channels % 2 == 0)
-    num_timescales = channels // 2
-    log_timescale_increment = (
-        math.log(float(max_timescale) / float(min_timescale)) /
-        (float(num_timescales) - 1.))
-    position = torch.arange(offset, offset + length,
-                            device=x.device, dtype=torch.float)
-    inv_timescales = torch.arange(0, num_timescales,
-                                  device=x.device, dtype=torch.float)
-
-    inv_timescales.mul_(-log_timescale_increment).exp_().mul_(min_timescale)
-    scaled_time = position.unsqueeze(1) * inv_timescales.unsqueeze(0)
-    # scaled time is now length x num_timescales
-    # length x channels
-    signal = torch.cat([scaled_time.sin(), scaled_time.cos()], 1)
-    return signal.unsqueeze(0).expand(batch, length, channels)
-
-
-class EncoderBlock(nn.Module):
-
-    def __init__(self, hidden_size=512, num_heads=8, inner_linear=1024, layer_norm=True, weight_norm=False, dropout=0):
-
-        super(EncoderBlock, self).__init__()
-        wn_func = wn if weight_norm else lambda x: x
-        if layer_norm:
-            self.lnorm1 = nn.LayerNorm(hidden_size)
-            self.lnorm2 = nn.LayerNorm(hidden_size)
-        self.dropout = nn.Dropout(dropout)
-        self.attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, weight_norm=weight_norm)
-        self.fc = nn.Sequential(wn_func(nn.Linear(hidden_size, inner_linear)),
-                                nn.ReLU(inplace=True),
-                                nn.Dropout(dropout),
-                                wn_func(nn.Linear(inner_linear, hidden_size)))
-
-    def set_mask(self, mask):
-        self.attention.set_mask_q(mask)
-        self.attention.set_mask_k(mask)
-
-    def forward(self, inputs):
-        x = inputs
-        res = x
-        x, _ = self.attention(x, x, x)
-        x = self.dropout(x).add_(res)
-        x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
-        res = x
-        x = self.fc(x)
-        x = self.dropout(x).add_(res)
-        x = self.lnorm2(x) if hasattr(self, 'lnorm2') else x
-        return x
-
-
-class DecoderBlock(nn.Module):
-
-    def __init__(self, hidden_size=512, num_heads=8, inner_linear=1024, layer_norm=True, weight_norm=False, dropout=0):
-
-        super(DecoderBlock, self).__init__()
-        wn_func = wn if weight_norm else lambda x: x
-        if layer_norm:
-            self.lnorm1 = nn.LayerNorm(hidden_size)
-            self.lnorm2 = nn.LayerNorm(hidden_size)
-            self.lnorm3 = nn.LayerNorm(hidden_size)
-        self.dropout = nn.Dropout(dropout)
-        self.weight_norm = weight_norm
-        self.attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, weight_norm=weight_norm)
-        self.masked_attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, dropout=dropout, causal=True, weight_norm=weight_norm)
-        self.fc = nn.Sequential(wn_func(nn.Linear(hidden_size, inner_linear)),
-                                nn.ReLU(inplace=True),
-                                nn.Dropout(dropout),
-                                wn_func(nn.Linear(inner_linear, hidden_size)))
-
-    def set_mask(self, mask, context_mask=None):
-        if context_mask is not None:
-            self.attention.set_mask_k(context_mask)
-        self.masked_attention.set_mask_q(mask)
-        self.masked_attention.set_mask_k(mask)
-
-    def forward(self, inputs, context, prev_inputs=None):
-        x = inputs
-        if prev_inputs is None:
-            x_past = x
-        else:
-            x_past = torch.cat((prev_inputs, x), 1)
-        res = x
-        x, _ = self.masked_attention(x, x_past, x_past)
-        x = self.dropout(x).add_(res)
-        x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
-        res = x
-        x, attn_enc = self.attention(x, context, context)
-        x = self.dropout(x).add_(res)
-        x = self.lnorm2(x) if hasattr(self, 'lnorm2') else x
-        res = x
-        x = self.fc(x)
-        x = self.dropout(x).add_(res)
-        x = self.lnorm3(x) if hasattr(self, 'lnorm3') else x
-
-        return x, attn_enc, x_past
+from .modules.transformer_blocks import EncoderBlock, DecoderBlock, positional_embedding
 
 
 class TransformerAttentionEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
-                 num_layers=6, num_heads=8, inner_linear=1024,
+                 num_layers=6, num_heads=8, inner_linear=2048, inner_groups=1,
                  mask_symbol=PAD, layer_norm=True, weight_norm=False, dropout=0):
 
         super(TransformerAttentionEncoder, self).__init__()
@@ -127,7 +21,12 @@ class TransformerAttentionEncoder(nn.Module):
             vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout, inplace=True)
-        self.blocks = nn.ModuleList([EncoderBlock(hidden_size, num_heads, inner_linear, layer_norm, weight_norm, dropout)
+        self.blocks = nn.ModuleList([EncoderBlock(hidden_size,
+                                                  num_heads=num_heads,
+                                                  inner_linear=inner_linear,
+                                                  layer_norm=layer_norm,
+                                                  weight_norm=weight_norm,
+                                                  dropout=dropout)
                                      for _ in range(num_layers)
                                      ])
 
@@ -150,7 +49,7 @@ class TransformerAttentionEncoder(nn.Module):
 class TransformerAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
-                 num_layers=6, num_heads=8, dropout=0, inner_linear=1024,
+                 num_layers=6, num_heads=8, dropout=0, inner_linear=2048, inner_groups=1, stateful=False,
                  mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False):
 
         super(TransformerAttentionDecoder, self).__init__()
@@ -161,7 +60,15 @@ class TransformerAttentionDecoder(nn.Module):
             vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout, inplace=True)
-        self.blocks = nn.ModuleList([DecoderBlock(hidden_size, num_heads, inner_linear, layer_norm, weight_norm, dropout)
+        self.stateful = stateful
+        self.blocks = nn.ModuleList([DecoderBlock(hidden_size,
+                                                  num_heads=num_heads,
+                                                  inner_linear=inner_linear,
+                                                  inner_groups=inner_groups,
+                                                  layer_norm=layer_norm,
+                                                  weight_norm=weight_norm,
+                                                  dropout=dropout,
+                                                  stateful=stateful)
                                      for _ in range(num_layers)
                                      ])
         self.classifier = nn.Linear(hidden_size, vocab_size)
@@ -170,12 +77,16 @@ class TransformerAttentionDecoder(nn.Module):
 
     def forward(self, inputs, state, get_attention=False):
         context = state.context
-        prev_inputs = state.inputs
-        if prev_inputs is None:
-            prev_inputs = [None] * len(self.blocks)
-            time_step = 0
+        time_step = 0
+
+        if self.stateful:
+            block_state = state.hidden
         else:
-            time_step = prev_inputs[0].size(1)
+            block_state = state.inputs
+            time_step = block_state[0].size(1)
+
+        if block_state is None:
+            block_state = [None] * len(self.blocks)
 
         if self.mask_symbol is not None:
             padding_mask = inputs.eq(self.mask_symbol)
@@ -186,17 +97,20 @@ class TransformerAttentionDecoder(nn.Module):
         x = self.dropout(x)
 
         attention_scores = []
-        updated_inputs = []
+        updated_state = []
         for i, block in enumerate(self.blocks):
             block.set_mask(padding_mask, context.mask)
-            x, attn_enc, prev_x = block(x, context.outputs, prev_inputs[i])
-            updated_inputs.append(prev_x)
+            x, attn_enc, block_s = block(x, context.outputs, block_state[i])
+            updated_state.append(block_s)
             if get_attention:
                 attention_scores.append(attn_enc)
             else:
                 del attn_enc
         x = self.classifier(x)
-        state.inputs = tuple(updated_inputs)
+        if self.stateful:
+            state.hidden = tuple(updated_state)
+        else:
+            state.inputs = tuple(updated_state)
         if get_attention:
             state.attention_score = attention_scores
         return x, state
@@ -205,8 +119,8 @@ class TransformerAttentionDecoder(nn.Module):
 class Transformer(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6,
-                 num_heads=8, inner_linear=2048, dropout=0.1, tie_embedding=True,
-                 encoder=None, decoder=None, layer_norm=True, weight_norm=False):
+                 num_heads=8, inner_linear=2048, inner_groups=1, dropout=0.1, tie_embedding=True,
+                 encoder=None, decoder=None, layer_norm=True, weight_norm=False, stateful=False):
         super(Transformer, self).__init__()
         embedding_size = embedding_size or hidden_size
         # keeping encoder, decoder None will result with default configuration
@@ -221,6 +135,7 @@ class Transformer(Seq2Seq):
         encoder.setdefault('weight_norm', weight_norm)
         encoder.setdefault('dropout', dropout)
         encoder.setdefault('inner_linear', inner_linear)
+        encoder.setdefault('inner_groups', inner_groups)
 
         decoder.setdefault('embedding_size', embedding_size)
         decoder.setdefault('hidden_size', hidden_size)
@@ -232,6 +147,8 @@ class Transformer(Seq2Seq):
         decoder.setdefault('weight_norm', weight_norm)
         decoder.setdefault('dropout', dropout)
         decoder.setdefault('inner_linear', inner_linear)
+        decoder.setdefault('inner_groups', inner_groups)
+        decoder.setdefault('stateful', stateful)
 
         self.batch_first = True
         self.encoder = TransformerAttentionEncoder(**encoder)
