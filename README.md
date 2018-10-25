@@ -8,7 +8,7 @@ Using this code you can train:
 * Skip-thought sentence representations
 * And more...
  
- ## Installation:
+ ## Installation
  ```
  git clone --recursive https://github.com/eladhoffer/seq2seq.pytorch
  cd seq2seq.pytorch; python setup.py develop
