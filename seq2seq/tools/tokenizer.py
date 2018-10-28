@@ -21,11 +21,8 @@ class OrderedCounter(Counter, OrderedDict):
 
 class Tokenizer(object):
 
-    def __init__(self, max_length=500, vocab_file=None,
-                 additional_tokens=None, pre_tokenize=None, post_tokenize=None,
-                 vocab_threshold=2):
-        self.max_length = max_length
-        self.vocab_threshold = vocab_threshold
+    def __init__(self, vocab_file=None,
+                 additional_tokens=None, pre_tokenize=None, post_tokenize=None):
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
         self.pre_tokenize = pre_tokenize
         self.post_tokenize = post_tokenize
@@ -35,13 +32,6 @@ class Tokenizer(object):
         self.__word2idx = {}
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
-        # if use_moses is not None
-        # try:
-        #     from nltk.tokenize.moses import MosesDetokenizer
-        # except ImportError:
-        #     raise ImportError('nltk is needed for moses tokenization')
-
-        # tknzr = MosesTokenizer(lang)
 
     @property
     def vocab_size(self):
@@ -90,15 +80,17 @@ class Tokenizer(object):
                 for (key, freq) in self.vocab:
                     f.write("{0} {1}\n".format(key, freq))
 
-    def load_vocab(self, vocab_filename, limit=None):
+    def load_vocab(self, vocab_filename, limit=None, min_count=1):
         vocab = OrderedCounter()
         with codecs.open(vocab_filename, encoding='UTF-8') as f:
             for line in f:
                 try:
                     word, count = line.strip().split()
                 except:  # no count
-                    word, count = line.strip(), 0
-                vocab[word] = int(count)
+                    word, count = line.strip(), 1
+                count = int(count)
+                if count >= min_count:
+                    vocab[word] = count
         self.vocab = vocab.most_common(limit)
         self.update_word2idx()
 

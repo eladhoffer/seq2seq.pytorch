@@ -67,7 +67,7 @@ class Seq2SeqTrainer(object):
                  keep_checkpoints=5,
                  avg_loss_time=True,
                  distributed=False,
-                 dist_local_rank=0,
+                 local_rank=0,
                  dtype=torch.float,
                  device_ids=None,
                  device="cuda"):
@@ -92,11 +92,12 @@ class Seq2SeqTrainer(object):
         self.avg_loss_time = avg_loss_time
         self.model_with_loss = AddLossModule(self.model, self.criterion)
         self.distributed = distributed
+        self.local_rank = local_rank
         if distributed:
             self.model_with_loss = DistributedDataParallel(
                 self.model_with_loss,
-                device_ids=[dist_local_rank],
-                output_device=dist_local_rank)
+                device_ids=[local_rank],
+                output_device=local_rank)
         else:
             if isinstance(self.device_ids, tuple):
                 self.model_with_loss = DataParallel(self.model_with_loss,
@@ -323,6 +324,8 @@ class Seq2SeqTrainer(object):
                 plot_perplexity += ['validation perplexity']
                 plot_accuracy += ['validation accuracy']
 
+            if self.distributed and self.local_rank > 0:
+                continue
             self.results.add(**results)
             self.results.plot(x='training steps', y=plot_perplexity,
                               title='Perplexity', ylabel='perplexity')

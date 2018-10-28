@@ -172,7 +172,8 @@ def main(args):
                                          pack=pack_encoder_inputs,
                                          max_length=args.max_length,
                                          max_tokens=args.max_tokens,
-                                         num_workers=args.workers)
+                                         num_workers=args.workers,
+                                         drop_last=True)
     val_loader = val_data.get_loader(batch_size=args.batch_size,
                                      batch_first=batch_first,
                                      shuffle=False,
@@ -192,7 +193,7 @@ def main(args):
         regime=regime,
         limit_num_tokens=args.limit_num_tokens,
         distributed=args.distributed,
-        dist_local_rank=args.local_rank,
+        local_rank=args.local_rank,
         device_ids=args.device_ids,
         device=device,
         dtype=args.dtype,
@@ -230,7 +231,8 @@ def main(args):
     while trainer.epoch < args.epochs:
         # train for one epoch
         trainer.run(train_loader, val_loader)
-
+        print('end1')
+    print('end2')
 
 if __name__ == '__main__':
     args = parser.parse_args()
