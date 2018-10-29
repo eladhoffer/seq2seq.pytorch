@@ -28,6 +28,7 @@ Datasets currently available:
 * WMT17
 * OpenSubtitles 2016
 * COCO image captions
+* [Conceptual captions](https://ai.googleblog.com/2018/09/conceptual-captions-new-dataset-and.html)
 
 All datasets can be tokenized using 3 available segmentation methods:
 
