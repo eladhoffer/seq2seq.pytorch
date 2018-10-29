@@ -32,7 +32,7 @@ class ConceptCaptions(object):
         'bpe': BPETokenizer
     }
 
-    def __init__(self, root, img_transform=imagenet_transform,
+    def __init__(self, root, image_transform=imagenet_transform,
                  split='train',
                  tokenization='word',
                  num_symbols=32000,
@@ -59,8 +59,8 @@ class ConceptCaptions(object):
         self.vocab_file = vocab_file
         self.vocab_limit = vocab_limit
         self.vocab_min_count = vocab_min_count
-        if img_transform is not None:
-            self.transform = img_transform(train=(split == 'train'))
+        if image_transform is not None:
+            self.transform = image_transform(train=(split == 'train'))
         else:
             self.transform = None
         self.pre_tokenize = pre_tokenize
@@ -175,7 +175,7 @@ class ConceptCaptions(object):
 
 
 if __name__ == '__main__':
-    data = ConceptCaptions('/media/drive/Datasets/concept_captions', split='train', img_transform=None)
+    data = ConceptCaptions('/media/drive/Datasets/concept_captions', split='train', image_transform=None)
 
 
 # #Now read the file back into a Python list object

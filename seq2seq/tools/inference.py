@@ -179,7 +179,7 @@ class Translator(object):
 class CaptionGenerator(Translator):
 
     def __init__(self, checkpoint=None,
-                 model=None, img_transform=None,
+                 model=None, image_transform=None,
                  target_tok=None, beam_size=5,
                  length_normalization_factor=0,
                  max_sequence_length=50,
@@ -191,38 +191,50 @@ class CaptionGenerator(Translator):
                                                length_normalization_factor=length_normalization_factor,
                                                max_sequence_length=max_sequence_length,
                                                get_attention=get_attention, device=device)
-        self.img_transform = img_transform or self.src_tok(
+        self.image_transform = image_transform or self.src_tok(
             allow_var_size=False, train=False)
 
     def set_src_language(self, language):
         pass
 
-    def describe(self, input_img, target_priming=None):
-        target_priming = target_priming or ''
-        src_img = self.img_transform(input_img)
+    def encode(self, input_image):
+        with torch.no_grad():
+            src_img = self.image_transform(input_image)
+            src = src_img.unsqueeze(0).unsqueeze(0).to(self.device)
+            state = self.model.encode(src)
+            if hasattr(self.model, 'bridge'):
+                state = self.model.bridge(state)
 
-        bos = self.target_tok.tokenize(
-            target_priming, insert_start=self.insert_target_start)
-        src = src_img.unsqueeze(0).unsqueeze(0).to(self.device)
-        if target_priming is None:
-            bos = self.insert_target_start
-        else:
-            bos = list(self.target_tok.tokenize(target_priming,
-                                                insert_start=self.insert_target_start))
-        state = self.model.encode(src)
-        if hasattr(self.model, 'bridge'):
-            state = self.model.bridge(state)
-        [seq] = self.generator.beam_search([bos], [state])
-        # remove forced  tokens
-        output = self.target_tok.detokenize(
-            seq.output[len(self.insert_target_start):-1])
-        if len(target_priming) > 0:
-            output = [' '.join([target_priming, o]) for o in output]
-        if seq.attention is not None:
-            _, c, h, w = list(state.outputs.size())
-            attentions = torch.stack([a.view(h, w) for a in seq.attention], 0)
-            preds = seq.output[len(self.insert_target_start):]
-            preds = [self.target_tok.idx2word(idx) for idx in preds]
-            return output, (attentions, preds)
-        else:
-            return output
+    def describe(self, input_image, target_priming=None):
+        with torch.no_grad():
+            target_priming = target_priming or ''
+
+            bos = self.target_tok.tokenize(
+                target_priming, insert_start=self.insert_target_start)
+            if target_priming is None:
+                bos = self.insert_target_start
+            else:
+                bos = list(self.target_tok.tokenize(target_priming,
+                                                    insert_start=self.insert_target_start))
+            # state = self.encode(input_image)
+            # [seq] = self.generator.beam_search([bos], [state])
+            src_img = self.image_transform(input_image)
+            src_img = src_img.unsqueeze(0).unsqueeze(0).to(self.device)
+            seq = self.model.generate(src_img, [bos],
+                                      beam_size=self.beam_size,
+                                      max_sequence_length=self.max_sequence_length,
+                                      length_normalization_factor=self.length_normalization_factor,
+                                      get_attention=self.get_attention)
+            # remove forced  tokens
+            preds = [s.output[len(self.insert_target_start):] for s in seq]
+            output = [self.target_tok.detokenize(p[:-1]) for p in preds]
+            if len(target_priming) > 0:
+                output = [' '.join([target_priming, o]) for o in output]
+            if seq.attention is not None:
+                _, c, h, w = list(state.outputs.size())
+                attentions = torch.stack([a.view(h, w) for a in seq.attention], 0)
+                preds = seq.output[len(self.insert_target_start):]
+                preds = [self.target_tok.idx2word(idx) for idx in preds]
+                return output, (attentions, preds)
+            else:
+                return output

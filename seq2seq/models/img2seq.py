@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from copy import deepcopy
 from .seq2seq_base import Seq2Seq
 from .recurrent import RecurrentDecoder, RecurrentAttentionDecoder, RecurrentEncoder
 from .transformer import TransformerAttentionDecoder
@@ -14,15 +15,16 @@ class Img2Seq(Seq2Seq):
         super(Img2Seq, self).__init__()
         self.transfer_hidden = transfer_hidden
         # keeping encoder, decoder None will result with default configuration
-        encoder = encoder or {'model': 'resnet50'}
+        encoder = encoder or {}
+        encoder = deepcopy(encoder)
+        model_name = encoder.pop('model', 'resnet50')
         encoder.setdefault('context_transform', None)
         encoder.setdefault('spatial_context', True)
 
         decoder = decoder or {}
+        decoder = deepcopy(decoder)
         decoder_type = decoder.pop('type', 'recurrent_attention')
 
-
-        model_name = encoder.pop('model')
         if 'resnet' in model_name:
             self.encoder = ResNetEncoder(**encoder)
         elif 'densenet' in model_name:

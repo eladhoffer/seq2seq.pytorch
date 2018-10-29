@@ -27,7 +27,7 @@ def batch_sequences(seqs, max_length=None, max_tokens=None, batch_first=False, p
     batch_dim, time_dim = (0, 1) if batch_first else (1, 0)
     if len(seqs) == 1:
         lengths = _limit_lengths(seqs, max_length, max_tokens)
-        seq_tensor = seqs[0][:lengths[0]]
+        seq_tensor = seqs[0].view(-1,)[:lengths[0]]
         seq_tensor = seq_tensor.unsqueeze(batch_dim)
     else:
         if sort:

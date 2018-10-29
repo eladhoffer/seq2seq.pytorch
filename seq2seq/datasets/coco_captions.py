@@ -21,7 +21,7 @@ class CocoCaptions(object):
         'bpe': BPETokenizer
     }
 
-    def __init__(self, root, img_transform=imagenet_transform,
+    def __init__(self, root, image_transform=imagenet_transform,
                  split='train',
                  tokenization='bpe',
                  num_symbols=32000,
@@ -44,7 +44,7 @@ class CocoCaptions(object):
         self.code_file = code_file
         self.vocab_file = vocab_file
         self.sample_caption = None
-        self.img_transform = img_transform
+        self.image_transform = image_transform
         self.pre_tokenize = pre_tokenize
         if split == 'train':
             path = {'root': os.path.join(root, 'train2014'),
@@ -60,7 +60,7 @@ class CocoCaptions(object):
                 self.sample_caption = lambda l: 0
 
         self.data = dset.CocoCaptions(root=path['root'], annFile=path[
-                                      'annFile'], transform=img_transform(train=(split == 'train')))
+                                      'annFile'], transform=image_transform(train=(split == 'train')))
 
         if self.tokenizer is None:
             prefix = os.path.join(root, 'coco')
@@ -145,4 +145,4 @@ class CocoCaptions(object):
 
     @property
     def tokenizers(self):
-        return OrderedDict(img=self.img_transform, en=self.tokenizer)
+        return OrderedDict(img=self.image_transform, en=self.tokenizer)
