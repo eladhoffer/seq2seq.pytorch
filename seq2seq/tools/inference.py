@@ -230,7 +230,7 @@ class CaptionGenerator(Translator):
             output = [self.target_tok.detokenize(p[:-1]) for p in preds]
             if len(target_priming) > 0:
                 output = [' '.join([target_priming, o]) for o in output]
-            if seq.attention is not None:
+            if self.get_attention and seq.attention is not None:
                 _, c, h, w = list(state.outputs.size())
                 attentions = torch.stack([a.view(h, w) for a in seq.attention], 0)
                 preds = seq.output[len(self.insert_target_start):]

@@ -17,7 +17,7 @@ class Img2Seq(Seq2Seq):
         # keeping encoder, decoder None will result with default configuration
         encoder = encoder or {}
         encoder = deepcopy(encoder)
-        model_name = encoder.pop('model', 'resnet50')
+        model_name = encoder.get('model', 'resnet50')
         encoder.setdefault('context_transform', None)
         encoder.setdefault('spatial_context', True)
 

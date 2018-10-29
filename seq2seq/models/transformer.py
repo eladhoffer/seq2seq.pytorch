@@ -77,6 +77,7 @@ class TransformerAttentionDecoder(nn.Module):
 
     def forward(self, inputs, state, get_attention=False):
         context = state.context
+        time_step = 0
 
         if self.stateful:
             block_state = state.hidden
