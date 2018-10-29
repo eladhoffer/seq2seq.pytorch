@@ -105,7 +105,6 @@ class AttentionLayer(nn.Module):
             mask = self.mask.unsqueeze(1).expand(b, t_q, t_k)
             scores.masked_fill_(mask, -1e12)
 
-
         # Normalize the scores
         scores_normalized = F.softmax(scores, dim=2)
 
@@ -161,18 +160,18 @@ class SDPAttention(nn.Module):
         qk = torch.bmm(q, k.transpose(1, 2))  # b x t_q x t_k
         qk.div_(dim_k ** 0.5)
         mask = None
-        if self.causal and t_q > 1:
-            causal_mask = q.data.new(t_q, t_k).byte().fill_(1).triu_(1)
-            mask = Variable(causal_mask.unsqueeze(0).expand(b, t_q, t_k),
-                            requires_grad=False)
-        if self.mask_k is not None:
-            mask_k = self.mask_k.unsqueeze(1).expand(b, t_q, t_k)
-            mask = mask_k if mask is None else mask | mask_k
-        if self.mask_q is not None:
-            mask_q = self.mask_q.unsqueeze(2).expand(b, t_q, t_k)
-            mask = mask_q if mask is None else mask | mask_q
-        if mask is not None:
-            qk.masked_fill_(mask, -1e9)
+        with torch.no_grad():
+            if self.causal and t_q > 1:
+                causal_mask = q.data.new(t_q, t_k).byte().fill_(1).triu_(1)
+                mask = causal_mask.unsqueeze(0).expand(b, t_q, t_k)
+            if self.mask_k is not None:
+                mask_k = self.mask_k.unsqueeze(1).expand(b, t_q, t_k)
+                mask = mask_k if mask is None else mask | mask_k
+            if self.mask_q is not None:
+                mask_q = self.mask_q.unsqueeze(2).expand(b, t_q, t_k)
+                mask = mask_q if mask is None else mask | mask_q
+            if mask is not None:
+                qk.masked_fill_(mask, -1e9)
 
         sm_qk = F.softmax(qk, dim=2)
         sm_qk = self.dropout(sm_qk)

@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .seq2seq_base import Seq2Seq
 from .recurrent import RecurrentDecoder, RecurrentAttentionDecoder, RecurrentEncoder
+from .transformer import TransformerAttentionDecoder
 from .modules.vision_encoders import AlexNetEncoder, ResNetEncoder, DenseNetEncoder, VGGEncoder, SqueezeNetEncoder
 from .modules.state import State
 
@@ -17,37 +18,32 @@ class Img2Seq(Seq2Seq):
         encoder.setdefault('context_transform', None)
         encoder.setdefault('spatial_context', True)
 
-        decoder_type = decoder.pop('type', 'recurrent_attention')
         decoder = decoder or {}
-        decoder.setdefault('hidden_size', 128)
-        decoder.setdefault('embedding_size', decoder['hidden_size'])
-        decoder.setdefault('num_layers', 1)
-        decoder.setdefault('bias', True)
-        decoder.setdefault('tie_embedding', False)
-        decoder.setdefault('vocab_size', vocab_size)
-        decoder.setdefault('dropout', 0)
-        decoder.setdefault('residual', False)
-        decoder.setdefault('batch_first', False)
+        decoder_type = decoder.pop('type', 'recurrent_attention')
 
-        if 'resnet' in encoder['model']:
+
+        model_name = encoder.pop('model')
+        if 'resnet' in model_name:
             self.encoder = ResNetEncoder(**encoder)
-        elif 'densenet' in encoder['model']:
+        elif 'densenet' in model_name:
             self.encoder = DenseNetEncoder(**encoder)
-        elif 'vgg' in encoder['model']:
+        elif 'vgg' in model_name:
             self.encoder = VGGEncoder(**encoder)
-        elif 'alexnet' in encoder['model']:
+        elif 'alexnet' in model_name:
             self.encoder = AlexNetEncoder(**encoder)
-        elif 'squeezenet' in encoder['model']:
+        elif 'squeezenet' in model_name:
             self.encoder = SqueezeNetEncoder(**encoder)
-        decoder['context_size'] = self.encoder.context_size
 
         if decoder_type == 'recurrent_attention':
+            decoder['context_size'] = self.encoder.context_size
             self.decoder = RecurrentAttentionDecoder(**decoder)
         elif decoder_type == 'recurrent':
+            decoder['context_size'] = self.encoder.context_size
             self.decoder = RecurrentDecoder(**decoder)
         elif decoder_type == 'transformer':
-            self.decoder = TransformerAttentionDecoder(**encoder)
-        decoder['type'] = decoder_type
+            decoder['hidden_size'] = self.encoder.context_size
+            self.decoder = TransformerAttentionDecoder(**decoder)
+        self.batch_first = getattr(self.decoder, 'batch_first', False)
 
     def encode(self, x, hidden=None, devices=None):
         x = x.squeeze(0)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import torch
+import torch.nn as nn
 from .config import EOS, BOS, LANGUAGE_TOKENS
 from .beam_search import SequenceGenerator
 from torch.nn.functional import adaptive_avg_pool2d
