@@ -80,7 +80,7 @@ class DecoderBlock(nn.Module):
             hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, weight_norm=weight_norm)
         if stateful:
             self.state_block = nn.RNN(
-                hidden_size, hidden_size, nonlinearity='relu', dropout=dropout, batch_first=True)
+                hidden_size, hidden_size, nonlinearity='tanh', dropout=dropout, batch_first=True)
         else:
             self.masked_attention = MultiHeadAttention(
                 hidden_size, hidden_size, num_heads, dropout=dropout, causal=True, weight_norm=weight_norm)

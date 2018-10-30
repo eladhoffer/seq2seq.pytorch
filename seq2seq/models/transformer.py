@@ -78,9 +78,11 @@ class TransformerAttentionDecoder(nn.Module):
     def forward(self, inputs, state, get_attention=False):
         context = state.context
         time_step = 0
-
         if self.stateful:
             block_state = state.hidden
+            if block_state is None:
+                self.time_step = 0
+            time_step = self.time_step
         else:
             block_state = state.inputs
             time_step = 0 if block_state is None else block_state[0].size(1)
@@ -109,6 +111,7 @@ class TransformerAttentionDecoder(nn.Module):
         x = self.classifier(x)
         if self.stateful:
             state.hidden = tuple(updated_state)
+            self.time_step += 1
         else:
             state.inputs = tuple(updated_state)
         if get_attention:
@@ -156,9 +159,3 @@ class Transformer(Seq2Seq):
 
         if tie_embedding:
             self.encoder.embedder.weight = self.decoder.classifier.weight
-    #
-    # def generate(self, input_list, state_list, k=1, feed_all_timesteps=True, get_attention=False):
-    #     # TODO cache computation, not inputs
-    #     return super(Transformer, self).generate(input_list, state_list, k=k,
-    #                                              feed_all_timesteps=feed_all_timesteps,
-    #                                              get_attention=get_attention)
