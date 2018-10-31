@@ -27,6 +27,53 @@ def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4, offset=0):
     return signal.unsqueeze(0).expand(batch, length, channels)
 
 
+class AverageNetwork(nn.Module):
+    """ Average Attention Network Block from https://arxiv.org/abs/1805.00631 
+    """
+
+    def __init__(self, input_size, inner_linear, inner_groups=1, layer_norm=True, weight_norm=False, dropout=0, batch_first=True):
+        wn_func = wn if weight_norm else lambda x: x
+        self.input_size = input_size
+        self.time_step = 0
+        self.batch_dim, self.time_dim = (0, 1) if batch_first else (1, 0)
+        self.gates = nn.Sequential(
+            nn.Linear(2 * input_size, 2 * input_size),
+            nn.Sigmoid()
+        )
+        if layer_norm:
+            self.lnorm = nn.LayerNorm(input_size)
+        self.fc = nn.Sequential(wn_func(Linear(input_size, inner_linear, groups=inner_groups)),
+                                nn.ReLU(inplace=True),
+                                nn.Dropout(dropout),
+                                wn_func(Linear(inner_linear, input_size, groups=inner_groups)))
+
+    def forward(self, x, state=None):
+        if state is None:
+            self.time_step = 0
+        num_steps = torch.arange(
+            self.time_step + 1, x.size(self.time_dim) + self.time_step + 1, device=x.device, dtype=x.dtype)
+
+        if state is None:
+            avg_attn = x.cumsum(self.time_dim) / num_steps
+        else:
+            past_num_steps = self.time_step + 1
+            avg_attn = ((past_num_steps * state) +
+                        x.cumsum(self.time_dim)) / num_steps
+
+        g = self.fc(avg_attn)
+        state = g
+
+        # gating
+        gate_values = self.gates(torch.cat((x, g), dim=-1))
+        input_gate, forget_gate = gate_values.chunk(2, dim=-1)
+        output = (input_gate + 1) * x + forget_gate * g  # gate and residual
+        if hasattr(self, 'lnorm'):
+            output = self.lnorm(output)
+        
+        self.time_step += x.size(self.time_dim)
+        return output, state
+
+
 class EncoderBlock(nn.Module):
 
     def __init__(self, hidden_size=512, num_heads=8, inner_linear=2048, inner_groups=1,
@@ -65,7 +112,7 @@ class EncoderBlock(nn.Module):
 class DecoderBlock(nn.Module):
 
     def __init__(self, hidden_size=512, num_heads=8, inner_linear=2048, inner_groups=1,
-                 layer_norm=True, weight_norm=False, dropout=0, stateful=False):
+                 layer_norm=True, weight_norm=False, dropout=0, stateful=None):
 
         super(DecoderBlock, self).__init__()
         wn_func = wn if weight_norm else lambda x: x
@@ -78,12 +125,19 @@ class DecoderBlock(nn.Module):
         self.stateful = stateful
         self.attention = MultiHeadAttention(
             hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, weight_norm=weight_norm)
-        if stateful:
-            self.state_block = nn.RNN(
-                hidden_size, hidden_size, nonlinearity='tanh', dropout=dropout, batch_first=True)
+        if stateful is not None:
+            if stateful == 'rnn':
+                self.state_block = nn.RNN(
+                    hidden_size, hidden_size, nonlinearity='tanh', dropout=dropout, batch_first=True)
+            elif stateful == 'lstm':
+                self.state_block = nn.LSTM(hidden_size, hidden_size,  dropout=dropout, batch_first=True)
+            else:
+                self.state_block = AverageNetwork(
+                    hidden_size, hidden_size, layer_norm=layer_norm, weight_norm=weight_norm, batch_first=True)
         else:
             self.masked_attention = MultiHeadAttention(
                 hidden_size, hidden_size, num_heads, dropout=dropout, causal=True, weight_norm=weight_norm)
+                
         self.fc = nn.Sequential(wn_func(Linear(hidden_size, inner_linear, groups=inner_groups)),
                                 nn.ReLU(inplace=True),
                                 nn.Dropout(dropout),
