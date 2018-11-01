@@ -7,20 +7,26 @@ from seq2seq.tools.config import EOS, BOS, PAD, LANGUAGE_TOKENS
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-
-
-def imagenet_transform(scale_size=256, input_size=224, train=True, allow_var_size=False):
+def imagenet_transform(scale_size=256, input_size=224, train=True, augmentation='inception', allow_var_size=False):
     normalize = {'mean': [0.485, 0.456, 0.406],
                  'std': [0.229, 0.224, 0.225]}
 
     if train:
-        return transforms.Compose([
-            transforms.Resize(scale_size),
-            transforms.RandomCrop(input_size),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(**normalize)
-        ])
+        if augmentation == 'inception':
+            return transforms.Compose([
+                transforms.RandomResizedCrop(input_size, scale=(0.5, 1)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(**normalize)
+            ])
+        else:
+            return transforms.Compose([
+                transforms.Resize(scale_size),
+                transforms.RandomCrop(input_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(**normalize)
+            ])
     elif allow_var_size:
         return transforms.Compose([
             transforms.Resize(scale_size),
@@ -34,7 +40,6 @@ def imagenet_transform(scale_size=256, input_size=224, train=True, allow_var_siz
             transforms.ToTensor(),
             transforms.Normalize(**normalize)
         ])
-
 
 
 def create_padded_caption_batch(max_length=100, max_tokens=None, batch_first=False,

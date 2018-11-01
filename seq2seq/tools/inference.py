@@ -216,8 +216,6 @@ class CaptionGenerator(Translator):
             else:
                 bos = list(self.target_tok.tokenize(target_priming,
                                                     insert_start=self.insert_target_start))
-            # state = self.encode(input_image)
-            # [seq] = self.generator.beam_search([bos], [state])
             src_img = self.image_transform(input_image)
             src_img = src_img.unsqueeze(0).unsqueeze(0).to(self.device)
             seq = self.model.generate(src_img, [bos],
