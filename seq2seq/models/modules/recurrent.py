@@ -15,7 +15,7 @@ def Recurrent(mode, input_size, hidden_size,
                   dropout=dropout, bidirectional=bidirectional)
     need_to_wrap = attention_layer is not None \
         or zoneout is not None \
-        or mode not in ['LSTM', 'GRU', 'RNN']
+        or mode not in ['LSTM', 'GRU', 'RNN', 'iRNN']
     wn_func = wn if weight_norm else lambda x: x
 
     if need_to_wrap:
@@ -24,7 +24,7 @@ def Recurrent(mode, input_size, hidden_size,
         elif mode == 'GRU':
             rnn_cell = nn.GRUCell
         else:
-            raise Exception('Unknown mode: {}'.format(mode))
+            raise Exception('Mode {} is unsupported yet'.format(mode))
         cell = rnn_cell
         if zoneout is not None:
             cell = wrap_zoneout_cell(cell, zoneout)
@@ -74,6 +74,10 @@ def Recurrent(mode, input_size, hidden_size,
             rnn = nn.GRU
         elif mode == 'RNN':
             rnn = nn.RNN
+            params['nonlinearity'] = 'tanh'
+        elif mode == 'iRNN':
+            rnn = nn.RNN
+            params['nonlinearity'] = 'relu'
         else:
             raise Exception('Unknown mode: {}'.format(mode))
         if residual:
@@ -89,7 +93,10 @@ def Recurrent(mode, input_size, hidden_size,
             if 'bias_hh' in n or 'bias_ih' in n:
                 forget_bias_params = p.data.chunk(4)[1]
                 forget_bias_params.fill_(forget_bias / 2)
-
+    if mode == 'iRNN':
+        for n, p in module.named_parameters():
+            if 'weight_hh' in n:
+                p.detach().copy_(torch.eye(*p.shape))
     return module
 
 
@@ -123,10 +130,12 @@ class StackedRecurrent(nn.Sequential):
             else:
                 inputs = output
             if isinstance(inputs, PackedSequence):
-                data = nn.functional.dropout(inputs.data, self.dropout, self.training)
+                data = nn.functional.dropout(
+                    inputs.data, self.dropout, self.training)
                 inputs = PackedSequence(data, inputs.batch_sizes)
             else:
-                inputs = nn.functional.dropout(inputs, self.dropout, self.training)
+                inputs = nn.functional.dropout(
+                    inputs, self.dropout, self.training)
 
         return output, tuple(next_hidden)
 

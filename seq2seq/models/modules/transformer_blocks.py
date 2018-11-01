@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from .attention import MultiHeadAttention
 from .weight_norm import weight_norm as wn
 from .linear import Linear
+from .recurrent import Recurrent
 
 
 def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4, offset=0):
@@ -128,12 +129,13 @@ class DecoderBlock(nn.Module):
         self.attention = MultiHeadAttention(
             hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, weight_norm=weight_norm)
         if stateful is not None:
-            if stateful == 'rnn':
-                self.state_block = nn.RNN(
-                    hidden_size, hidden_size, nonlinearity='tanh', dropout=dropout, batch_first=True)
-            elif stateful == 'lstm':
-                self.state_block = nn.LSTM(
-                    hidden_size, hidden_size,  dropout=dropout, batch_first=True)
+            residual = False
+            if stateful.endswith('_res'):
+                stateful = stateful.replace('_res','')
+                residual = True
+            if stateful in ['RNN', 'iRNN', 'LSTM', 'GRU']:
+                self.state_block = Recurrent(stateful, hidden_size, hidden_size,
+                                             dropout=dropout, residual=residual, batch_first=True)
             else:
                 self.state_block = AverageNetwork(
                     hidden_size, hidden_size, layer_norm=layer_norm, weight_norm=weight_norm, batch_first=True)
