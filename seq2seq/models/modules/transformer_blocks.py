@@ -32,12 +32,13 @@ class AverageNetwork(nn.Module):
     """
 
     def __init__(self, input_size, inner_linear, inner_groups=1, layer_norm=True, weight_norm=False, dropout=0, batch_first=True):
+        super(AverageNetwork, self).__init__()
         wn_func = wn if weight_norm else lambda x: x
         self.input_size = input_size
         self.time_step = 0
         self.batch_dim, self.time_dim = (0, 1) if batch_first else (1, 0)
         self.gates = nn.Sequential(
-            nn.Linear(2 * input_size, 2 * input_size),
+            wn_func(nn.Linear(2 * input_size, 2 * input_size)),
             nn.Sigmoid()
         )
         if layer_norm:
@@ -51,7 +52,8 @@ class AverageNetwork(nn.Module):
         if state is None:
             self.time_step = 0
         num_steps = torch.arange(
-            self.time_step + 1, x.size(self.time_dim) + self.time_step + 1, device=x.device, dtype=x.dtype)
+            self.time_step + 1, x.size(self.time_dim) + self.time_step + 1,
+            device=x.device, dtype=x.dtype).view(-1, 1)
 
         if state is None:
             avg_attn = x.cumsum(self.time_dim) / num_steps
@@ -69,7 +71,7 @@ class AverageNetwork(nn.Module):
         output = (input_gate + 1) * x + forget_gate * g  # gate and residual
         if hasattr(self, 'lnorm'):
             output = self.lnorm(output)
-        
+
         self.time_step += x.size(self.time_dim)
         return output, state
 
@@ -130,14 +132,15 @@ class DecoderBlock(nn.Module):
                 self.state_block = nn.RNN(
                     hidden_size, hidden_size, nonlinearity='tanh', dropout=dropout, batch_first=True)
             elif stateful == 'lstm':
-                self.state_block = nn.LSTM(hidden_size, hidden_size,  dropout=dropout, batch_first=True)
+                self.state_block = nn.LSTM(
+                    hidden_size, hidden_size,  dropout=dropout, batch_first=True)
             else:
                 self.state_block = AverageNetwork(
                     hidden_size, hidden_size, layer_norm=layer_norm, weight_norm=weight_norm, batch_first=True)
         else:
             self.masked_attention = MultiHeadAttention(
                 hidden_size, hidden_size, num_heads, dropout=dropout, causal=True, weight_norm=weight_norm)
-                
+
         self.fc = nn.Sequential(wn_func(Linear(hidden_size, inner_linear, groups=inner_groups)),
                                 nn.ReLU(inplace=True),
                                 nn.Dropout(dropout),

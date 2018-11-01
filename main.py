@@ -203,8 +203,15 @@ def main(args):
 
     trainer_options['model'] = model
     trainer = getattr(trainers, args.trainer)(**trainer_options)
-    num_parameters = sum([l.nelement() for l in model.parameters()])
-    logging.info("number of parameters: %d", num_parameters)
+
+    def num_parameters(model):
+        return 0 if model is None else sum([l.nelement() for l in model.parameters()])
+
+    logging.info("\nEncoder - number of parameters: %d",
+                 num_parameters(getattr(model, 'encoder', None)))
+    logging.info("Decoder - number of parameters: %d",
+                 num_parameters(getattr(model, 'decoder', None)))
+    logging.info("Total number of parameters: %d\n", num_parameters(model))
 
     if args.uniform_init is not None:
         for param in model.parameters():
@@ -225,7 +232,7 @@ def main(args):
         else:
             logging.error("no checkpoint found at '%s'", args.resume)
 
-    logging.info('training regime: %s', regime)
+    logging.info('training regime: %s\n', regime)
     trainer.epoch = args.start_epoch
 
     while trainer.epoch < args.epochs:
@@ -233,6 +240,7 @@ def main(args):
         trainer.run(train_loader, val_loader)
         print('end1')
     print('end2')
+
 
 if __name__ == '__main__':
     args = parser.parse_args()
