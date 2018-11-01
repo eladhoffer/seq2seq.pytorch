@@ -66,15 +66,16 @@ class ResNetEncoder(CNNEncoderBase):
         del self.model.fc
 
     def forward(self, x):
-        x = self.model.conv1(x)
-        x = self.model.bn1(x)
-        x = self.model.relu(x)
-        x = self.model.maxpool(x)
+        with torch.set_grad_enabled(self.finetune):
+            x = self.model.conv1(x)
+            x = self.model.bn1(x)
+            x = self.model.relu(x)
+            x = self.model.maxpool(x)
 
-        x = self.model.layer1(x)
-        x = self.model.layer2(x)
-        x = self.model.layer3(x)
-        x = self.model.layer4(x)
+            x = self.model.layer1(x)
+            x = self.model.layer2(x)
+            x = self.model.layer3(x)
+            x = self.model.layer4(x)
 
         if not self.spatial_context:
             x = F.avg_pool2d(x, kernel_size=7).view(x.size(0), x.size(1))
@@ -94,8 +95,9 @@ class DenseNetEncoder(CNNEncoderBase):
         del self.model.classifier
 
     def forward(self, x):
-        features = self.model.features(x)
-        x = F.relu(features, inplace=True)
+        with torch.set_grad_enabled(self.finetune):
+            features = self.model.features(x)
+            x = F.relu(features, inplace=True)
         if not self.spatial_context:
             x = F.avg_pool2d(x, kernel_size=7).view(x.size(0), x.size(1))
         if hasattr(self, 'context_transform'):
@@ -114,7 +116,8 @@ class VGGEncoder(CNNEncoderBase):
         del self.model.classifier
 
     def forward(self, x):
-        x = self.features(x)
+        with torch.set_grad_enabled(self.finetune):
+            x = self.features(x)
         if hasattr(self, 'context_transform'):
             x = self.context_transform(x)
         if hasattr(self, 'context_nonlinearity'):
@@ -131,7 +134,8 @@ class AlexNetEncoder(CNNEncoderBase):
         del self.model.classifier
 
     def forward(self, x):
-        x = self.features(x)
+        with torch.set_grad_enabled(self.finetune):
+            x = self.features(x)
         if hasattr(self, 'context_transform'):
             x = self.context_transform(x)
         if hasattr(self, 'context_nonlinearity'):
@@ -143,12 +147,13 @@ class SqueezeNetEncoder(CNNEncoderBase):
 
     def __init__(self, model='squeezenet1_1', pretrained=True, **kwargs):
         model = squeezenet.__dict__[model](pretrained=pretrained)
-        super(AlexNetEncoder, self).__init__(model, context_size=model.classifier.in_features,
+        super(SqueezeNetEncoder, self).__init__(model, context_size=model.classifier.in_features,
                                              **kwargs)
         del self.model.classifier
 
     def forward(self, x):
-        x = self.features(x)
+        with torch.set_grad_enabled(self.finetune):
+            x = self.features(x)
         if hasattr(self, 'context_transform'):
             x = self.context_transform(x)
         if hasattr(self, 'context_nonlinearity'):

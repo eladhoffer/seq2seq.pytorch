@@ -162,7 +162,7 @@ class DecoderBlock(nn.Module):
                 x_past = torch.cat((state, x), 1)
             x, _ = self.masked_attention(x, x_past, x_past)
             state = x_past
-        x = self.dropout(x).add_(res)
+        x = self.dropout(x).add(res)
         x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
         res = x
         x, attn_enc = self.attention(x, context, context)
