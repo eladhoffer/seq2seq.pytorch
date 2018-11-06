@@ -59,12 +59,12 @@ class AverageNetwork(nn.Module):
         if state is None:
             avg_attn = x.cumsum(self.time_dim) / num_steps
         else:
-            past_num_steps = self.time_step + 1
-            avg_attn = ((past_num_steps * state) +
+            past_num_steps = self.time_step
+            avg_attn = ((self.time_step * state.unsqueeze(self.time_dim)) +
                         x.cumsum(self.time_dim)) / num_steps
 
+        state = avg_attn.select(self.time_dim, -1)
         g = self.fc(avg_attn)
-        state = g
 
         # gating
         gate_values = self.gates(torch.cat((x, g), dim=-1))

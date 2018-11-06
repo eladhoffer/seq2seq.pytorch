@@ -201,7 +201,7 @@ class SequenceGenerator(object):
                         k += 1
                         num_hyp += 1
 
-                        if w == self.eos_id:
+                        if w.item() == self.eos_id:
                             if self.length_normalization_factor > 0:
                                 L = self.length_normalization_const
                                 length_penalty = (L + len(output)) / (L + 1)

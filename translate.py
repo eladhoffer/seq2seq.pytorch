@@ -20,33 +20,35 @@ parser.add_argument('--batch_size', default=16, type=int,
                     help='batch size used for inference')
 parser.add_argument('--length_normalization', default=0.6, type=float,
                     help='length normalization factor')
-parser.add_argument('--devices', default='0',
-                    help='device assignment (e.g "0,1", {"encoder":0, "decoder":1})')
-parser.add_argument('--type', default='torch.cuda.FloatTensor',
+parser.add_argument('--device', default='cuda',
+                    help='device assignment ("cpu" or "cuda")')
+parser.add_argument('--device_ids', default='0',
+                    help='device ids assignment (e.g "0,1", {"encoder":0, "decoder":1})')
+parser.add_argument('--dtype', default='torch.float',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
 parser.add_argument('--verbose', action='store_true',
                     help='print translations on screen')
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    args.devices = literal_eval(args.devices)
+    args.device_ids = literal_eval(args.device_ids)
     try:
         args.model = literal_eval(args.model)
     except:
         pass
-    if 'cuda' in args.type and torch.cuda.is_available():
-        device = "cuda"
+        
+    if 'cuda' in args.device:
         main_gpu = 0
-        if isinstance(args.devices, tuple):
-            main_gpu = args.devices[0]
-        elif isinstance(args.devices, int):
-            main_gpu = args.devices
-        elif isinstance(args.devices, dict):
-            main_gpu = args.devices.get('input', 0)
+        if isinstance(args.device_ids, tuple):
+            main_gpu = args.device_ids[0]
+        elif isinstance(args.device_ids, int):
+            main_gpu = args.device_ids
+        elif isinstance(args.device_ids, dict):
+            main_gpu = args.device_ids.get('input', 0)
         torch.cuda.set_device(main_gpu)
         torch.backends.cudnn.benchmark = True
-    else:
-        device = "cpu"
+        args.device = torch.device(args.device, main_gpu)
+
     if isinstance(args.model, tuple):  # average models
         checkpoint = average_models(args.model)
     else:
@@ -57,7 +59,7 @@ if __name__ == '__main__':
                                    beam_size=args.beam_size,
                                    max_sequence_length=args.max_sequence_length,
                                    length_normalization_factor=args.length_normalization,
-                                   device=device)
+                                   device=args.device)
 
     output_file = codecs.open(args.output, 'w', encoding='UTF-8')
 
