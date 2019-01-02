@@ -76,7 +76,7 @@ class Seq2SeqTrainer(object):
         self.criterion = criterion or CrossEntropyLoss(
             ignore_index=PAD, smooth_eps=label_smoothing, reduction='sum')
 
-        self.optimizer = OptimRegime(self.model.parameters(), regime=regime)
+        self.optimizer = OptimRegime(self.model, regime=regime)
         self.grad_clip = grad_clip
         self.embedding_grad_clip = embedding_grad_clip
         self.epoch = 0

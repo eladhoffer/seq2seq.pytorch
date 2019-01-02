@@ -13,6 +13,7 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from seq2seq import models, datasets
 from seq2seq.tools.utils.log import setup_logging
+from seq2seq.tools.utils.misc import set_global_seeds
 from seq2seq.tools.config import PAD
 import seq2seq.tools.trainer as trainers
 
@@ -94,9 +95,11 @@ parser.add_argument('--max_tokens', default=None, type=int,
                     help='maximum sequence tokens')
 parser.add_argument('--limit_num_tokens', default=None, type=int,
                     help='trim batch size to fit maximum num of tokens')
-
+parser.add_argument('--seed', default=123, type=int,
+                    help='random seed (default: 123)')
 
 def main(args):
+    set_global_seeds(args.seed)
     time_stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     if args.evaluate:
         args.results_dir = '/tmp'
