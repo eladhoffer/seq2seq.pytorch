@@ -118,14 +118,15 @@ class Tokenizer(object):
 class BPETokenizer(Tokenizer):
 
     def __init__(self, codes_file, vocab_file, additional_tokens=None,
-                 num_symbols=10000, min_frequency=2, separator='@@',
-                 pre_tokenize=None, post_tokenize=None,):
+                 num_symbols=10000, min_frequency=2, total_symbols=False, separator='@@',
+                 pre_tokenize=None, post_tokenize=None):
         super(BPETokenizer, self).__init__(vocab_file=vocab_file,
                                            additional_tokens=additional_tokens,
                                            pre_tokenize=pre_tokenize,
                                            post_tokenize=post_tokenize)
         self.num_symbols = num_symbols
         self.min_frequency = min_frequency
+        self.total_symbols = total_symbols
         self.separator = separator
         self.codes_file = codes_file
         if os.path.isfile(codes_file):
@@ -162,8 +163,9 @@ class BPETokenizer(Tokenizer):
                       for (key, freq) in full_vocab.items()]
         # learn BPE on combined vocabulary
         with codecs.open(self.codes_file, 'w', encoding='UTF-8') as output:
-            learn_bpe.main(vocab_list, output, self.num_symbols,
-                           self.min_frequency, False, is_dict=True)
+            learn_bpe.learn_bpe(vocab_list, output, num_symbols=self.num_symbols,
+                                min_frequency=self.min_frequency, verbose=False,
+                                is_dict=True, total_symbols=self.total_symbols)
         self.set_bpe(self.codes_file)
 
     def detokenize(self, inputs, delimiter=' '):

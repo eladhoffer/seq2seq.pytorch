@@ -241,8 +241,6 @@ def main(args):
     while trainer.epoch < args.epochs:
         # train for one epoch
         trainer.run(train_loader, val_loader)
-        print('end1')
-    print('end2')
 
 
 if __name__ == '__main__':
