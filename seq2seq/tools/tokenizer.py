@@ -22,16 +22,36 @@ class OrderedCounter(Counter, OrderedDict):
 class Tokenizer(object):
 
     def __init__(self, vocab_file=None,
-                 additional_tokens=None, pre_tokenize=None, post_tokenize=None):
+                 additional_tokens=None, use_moses=False, pre_tokenize=None, post_detokenize=None):
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
-        self.pre_tokenize = pre_tokenize
-        self.post_tokenize = post_tokenize
-
+        if use_moses:
+            self.enable_moses()
+        else:
+            self.pre_tokenize = pre_tokenize
+            self.post_detokenize = post_detokenize
         if additional_tokens is not None:
             self.special_tokens += additional_tokens
         self.__word2idx = {}
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
+
+    def enable_moses(self, pre=True, post=True):
+        if pre:
+            from sacremoses import MosesTokenizer
+            self._moses_tok = MosesTokenizer()
+            self.pre_tokenize = lambda sent: self._moses_tok.tokenize(
+                sent, return_str=True)
+        else:
+            self.pre_tokenize = None
+
+        if post:
+            from sacremoses import MosesDetokenizer
+            self._moses_tok, self._moses_detok = MosesTokenizer(), MosesDetokenizer()
+
+            self.post_detokenize = lambda tokens: self._moses_detok.detokenize(
+                tokens, return_str=False)
+        else:
+            self.post_detokenize = None
 
     @property
     def vocab_size(self):
@@ -109,9 +129,10 @@ class Tokenizer(object):
         return torch.LongTensor(targets)
 
     def detokenize(self, inputs, delimiter=u' '):
-        outputs = delimiter.join([self.idx2word(idx) for idx in inputs])
-        if getattr(self, 'post_tokenize', None) is not None:
-            outputs = self.post_tokenize(outputs)
+        token_list = [self.idx2word(idx) for idx in inputs]
+        if getattr(self, 'post_detokenize', None) is not None:
+            token_list = self.post_detokenize(token_list)
+        outputs = delimiter.join(token_list)
         return outputs
 
 
@@ -119,11 +140,10 @@ class BPETokenizer(Tokenizer):
 
     def __init__(self, codes_file, vocab_file, additional_tokens=None,
                  num_symbols=10000, min_frequency=2, total_symbols=False, separator='@@',
-                 pre_tokenize=None, post_tokenize=None):
+                 **kwargs):
         super(BPETokenizer, self).__init__(vocab_file=vocab_file,
                                            additional_tokens=additional_tokens,
-                                           pre_tokenize=pre_tokenize,
-                                           post_tokenize=post_tokenize)
+                                           **kwargs)
         self.num_symbols = num_symbols
         self.min_frequency = min_frequency
         self.total_symbols = total_symbols
