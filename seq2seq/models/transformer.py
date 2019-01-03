@@ -123,7 +123,7 @@ class Transformer(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6,
                  num_heads=8, inner_linear=2048, inner_groups=1, dropout=0.1, tie_embedding=True,
-                 encoder=None, decoder=None, layer_norm=True, weight_norm=False, stateful=False):
+                 encoder=None, decoder=None, layer_norm=True, weight_norm=False, stateful=None):
         super(Transformer, self).__init__()
         embedding_size = embedding_size or hidden_size
         # keeping encoder, decoder None will result with default configuration

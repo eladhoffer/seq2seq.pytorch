@@ -6,7 +6,7 @@ WMT=${3:-"wmt14"}
 LANG=${4:-"en-de"}
 SRC=${5:-"${MODEL_PATH}/${WMT}-${LANG}.src"}
 TARGET=${6:-"${MODEL_PATH}/${WMT}-${LANG}.target"}
-CHECKPOINT="${MODEL_PATH}/checkpoint.pth.tar";
+CHECKPOINT="${MODEL_PATH}/checkpoint.pth";
 
 sacrebleu -t ${WMT} -l ${LANG} --echo src > ${SRC}
 
