@@ -7,7 +7,7 @@ from copy import deepcopy
 from .multi_language import MultiLanguageDataset
 
 
-class OpenSubtitles2016(MultiLanguageDataset):
+class OpenSubtitles2018(MultiLanguageDataset):
     """docstring for Dataset."""
 
     def __init__(self,
@@ -15,6 +15,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
                  languages,
                  split='train',
                  tokenization='bpe',
+                 use_moses=False,
                  num_symbols=32000,
                  shared_vocab=True,
                  code_files=None,
@@ -31,6 +32,7 @@ class OpenSubtitles2016(MultiLanguageDataset):
             prefix=train_prefix,
             languages=languages,
             tokenization=tokenization,
+            use_moses=use_moses,
             num_symbols=num_symbols,
             shared_vocab=shared_vocab,
             code_files=code_files,
@@ -52,6 +54,6 @@ class OpenSubtitles2016(MultiLanguageDataset):
             options['vocab_files'] = getattr(train_data, 'vocab_files', None)
             options['prefix'] = prefix.format(split)
 
-        super(OpenSubtitles2016, self).__init__(**options)
+        super(OpenSubtitles2018, self).__init__(**options)
         if load_data:
             self.load_data()

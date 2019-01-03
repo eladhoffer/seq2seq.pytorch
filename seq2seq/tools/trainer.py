@@ -368,10 +368,10 @@ class Seq2SeqTrainer(object):
         torch.save(state, filename)
         if is_best:
             shutil.copyfile(filename, os.path.join(
-                self.save_path, 'model_best.pth.tar'))
+                self.save_path, 'model_best.pth'))
         if save_all:
             shutil.copyfile(filename, os.path.join(
-                self.save_path, 'checkpoint_epoch_%s.pth.tar' % self.epoch))
+                self.save_path, 'checkpoint_epoch_%s.pth' % self.epoch))
 
 
 class MultiSeq2SeqTrainer(Seq2SeqTrainer):

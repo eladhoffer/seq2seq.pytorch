@@ -39,6 +39,7 @@ class MultiLanguageDataset(object):
     def __init__(self, prefix,
                  languages,
                  tokenization='bpe',
+                 use_moses=False,
                  num_symbols=32000,
                  shared_vocab=True,
                  code_files=None,
@@ -53,6 +54,7 @@ class MultiLanguageDataset(object):
         self.shared_vocab = shared_vocab
         self.num_symbols = num_symbols
         self.tokenizers = tokenizers
+        self.use_moses = use_moses
         self.tokenization = tokenization
         self.insert_start = insert_start
         self.insert_end = insert_end
@@ -110,13 +112,15 @@ class MultiLanguageDataset(object):
                 tokz = BPETokenizer(self.code_files[l],
                                     vocab_file=self.vocab_files[l],
                                     num_symbols=self.num_symbols,
-                                    additional_tokens=additional_tokens)
+                                    additional_tokens=additional_tokens,
+                                    use_moses=self.use_moses)
                 if not hasattr(tokz, 'bpe'):
                     tokz.learn_bpe(files)
             else:
                 tokz = self.__tokenizers[self.tokenization](
                     vocab_file=self.vocab_files[l],
-                    additional_tokens=additional_tokens)
+                    additional_tokens=additional_tokens,
+                    use_moses=self.use_moses)
 
             if not hasattr(tokz, 'vocab'):
                 logging.info('generating vocabulary. saving to %s' %
