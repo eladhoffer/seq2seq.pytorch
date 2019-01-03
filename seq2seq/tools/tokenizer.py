@@ -14,6 +14,20 @@ sys.path.append(os.path.abspath(os.path.join(
 import learn_bpe
 import apply_bpe
 
+try:
+    from sacremoses import MosesTokenizer, MosesDetokenizer
+    _MOSES_TOK = MosesTokenizer()
+    _MOSES_DETOK = MosesDetokenizer()
+
+    def moses_tokenize(sent):
+        return _MOSES_TOK.tokenize(sent, return_str=True)
+
+    def moses_detokenize(tokens):
+        return _MOSES_DETOK.detokenize(tokens, return_str=False)
+except ImportError:
+    _MOSES_TOK = None
+    _MOSES_DETOK = None
+
 
 class OrderedCounter(Counter, OrderedDict):
     pass
@@ -25,7 +39,9 @@ class Tokenizer(object):
                  additional_tokens=None, use_moses=False, pre_tokenize=None, post_detokenize=None):
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
         if use_moses:
-            self.enable_moses()
+            assert _MOSES_TOK is not None and _MOSES_DETOK is not None
+            self.pre_tokenize = moses_tokenize
+            self.post_detokenize = moses_detokenize
         else:
             self.pre_tokenize = pre_tokenize
             self.post_detokenize = post_detokenize
@@ -34,24 +50,6 @@ class Tokenizer(object):
         self.__word2idx = {}
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
-
-    def enable_moses(self, pre=True, post=True):
-        if pre:
-            from sacremoses import MosesTokenizer
-            self._moses_tok = MosesTokenizer()
-            self.pre_tokenize = lambda sent: self._moses_tok.tokenize(
-                sent, return_str=True)
-        else:
-            self.pre_tokenize = None
-
-        if post:
-            from sacremoses import MosesDetokenizer
-            self._moses_tok, self._moses_detok = MosesTokenizer(), MosesDetokenizer()
-
-            self.post_detokenize = lambda tokens: self._moses_detok.detokenize(
-                tokens, return_str=False)
-        else:
-            self.post_detokenize = None
 
     @property
     def vocab_size(self):

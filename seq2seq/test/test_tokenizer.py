@@ -13,7 +13,7 @@ char_tokenizer.get_vocab([test_file], from_filenames=True)
 tokenized = char_tokenizer.tokenize(text)
 print(tokenized, char_tokenizer.detokenize(tokenized))
 
-bpe_tokenizer = BPETokenizer('test_bpe.codes', 'test_bpe.vocab', num_symbols=100)
+bpe_tokenizer = BPETokenizer('test_bpe.codes', 'test_bpe.vocab', num_symbols=100, use_moses=True)
 bpe_tokenizer.learn_bpe([test_file], from_filenames=True)
 bpe_tokenizer.get_vocab([test_file], from_filenames=True)
 
