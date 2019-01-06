@@ -63,6 +63,9 @@ class MultiLanguageDataset(object):
         self.input_files = {l: '{prefix}.{lang}'.format(
             prefix=prefix, lang=l) for l in languages}
 
+        if use_moses:
+            prefix += '.moses'
+            
         if self.tokenizers is None:
             if tokenization not in ['bpe', 'char', 'word']:
                 raise ValueError("An invalid option for tokenization was used, options are {0}".format(

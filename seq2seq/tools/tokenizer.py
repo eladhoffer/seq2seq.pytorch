@@ -33,6 +33,30 @@ class OrderedCounter(Counter, OrderedDict):
     pass
 
 
+def _segment_words(line, pre_apply=None):
+    if pre_apply is not None:
+        line = pre_apply(line)
+    line = str(line)
+    return line.strip('\r\n ').split(' ')
+
+
+def _get_vocabulary(item_list, segment=_segment_words, from_filenames=True):
+    vocab = OrderedCounter()
+    if from_filenames:
+        filenames = item_list
+        # get combined vocabulary of all input files
+        for fname in filenames:
+            with codecs.open(fname, encoding='UTF-8') as f:
+                for line in f:
+                    for word in segment(line):
+                        vocab[word] += 1
+    else:
+        for line in item_list:
+            for word in segment(line):
+                vocab[word] += 1
+    return vocab
+
+
 class Tokenizer(object):
 
     def __init__(self, vocab_file=None,
@@ -72,23 +96,13 @@ class Tokenizer(object):
 
     def segment(self, line):
         """segments a line to tokenizable items"""
-        line = str(line)
-        return line.strip().split()
+        if getattr(self, 'pre_tokenize', None) is not None:
+            line = self.pre_tokenize(line)
+        return _segment_words(line)
 
     def get_vocab(self, item_list, from_filenames=True, limit=None):
-        vocab = OrderedCounter()
-        if from_filenames:
-            filenames = item_list
-            # get combined vocabulary of all input files
-            for fname in filenames:
-                with codecs.open(fname, encoding='UTF-8') as f:
-                    for line in f:
-                        for word in self.segment(line):
-                            vocab[word] += 1
-        else:
-            for line in item_list:
-                for word in self.segment(line):
-                    vocab[word] += 1
+        vocab = _get_vocabulary(item_list=item_list, segment=self.segment,
+                                     from_filenames=from_filenames)
         self.vocab = vocab.most_common(limit)
         self.update_word2idx()
 
@@ -114,8 +128,6 @@ class Tokenizer(object):
 
     def tokenize(self, line, insert_start=None, insert_end=None):
         """tokenize a line, insert_start and insert_end are lists of tokens"""
-        if getattr(self, 'pre_tokenize', None) is not None:
-            line = self.pre_tokenize(line)
         inputs = self.segment(line)
         targets = []
         if insert_start is not None:
@@ -157,28 +169,22 @@ class BPETokenizer(Tokenizer):
     def segment(self, line):
         if not hasattr(self, 'bpe'):
             raise NameError('Learn bpe first!')
-        return self.bpe.segment(line.strip()).split()
+        if getattr(self, 'pre_tokenize', None) is not None:
+            line = self.pre_tokenize(line)
+        return self.bpe.segment(line.strip('\r\n ')).split(' ')
 
     def learn_bpe(self, item_list, from_filenames=True):
         logging.info('generating bpe codes file. saving to %s' %
                      self.codes_file)
-        if from_filenames:
-            filenames = item_list
-            if isinstance(filenames, str):
-                filenames = [filenames]
 
-            # get combined vocabulary of all input files
-            full_vocab = OrderedCounter()
-            for fname in filenames:
-                with codecs.open(fname, encoding='UTF-8') as f:
-                    full_vocab += learn_bpe.get_vocabulary(f)
-        else:
-            # get combined vocabulary of all input texts
-            full_vocab = OrderedCounter()
-            full_vocab += learn_bpe.get_vocabulary(item_list)
+        # get vocabulary at word level (before bpe)
+        def segment_words(line): return _segment_words(line, self.pre_tokenize)
+        vocab_words = _get_vocabulary(item_list,
+                                      from_filenames=from_filenames,
+                                      segment=segment_words)
 
         vocab_list = ['{0} {1}'.format(key, freq)
-                      for (key, freq) in full_vocab.items()]
+                      for (key, freq) in vocab_words.items()]
         # learn BPE on combined vocabulary
         with codecs.open(self.codes_file, 'w', encoding='UTF-8') as output:
             learn_bpe.learn_bpe(vocab_list, output, num_symbols=self.num_symbols,
@@ -202,6 +208,8 @@ class BPETokenizer(Tokenizer):
 class CharTokenizer(Tokenizer):
 
     def segment(self, line):
+        if getattr(self, 'pre_tokenize', None) is not None:
+            line = self.pre_tokenize(line)
         return list(line.strip())
 
     def detokenize(self, inputs, delimiter=u''):
