@@ -16,17 +16,9 @@ import apply_bpe
 
 try:
     from sacremoses import MosesTokenizer, MosesDetokenizer
-    _MOSES_TOK = MosesTokenizer()
-    _MOSES_DETOK = MosesDetokenizer()
-
-    def moses_tokenize(sent):
-        return _MOSES_TOK.tokenize(sent, return_str=True)
-
-    def moses_detokenize(tokens):
-        return _MOSES_DETOK.detokenize(tokens, return_str=False)
+    _MOSES_AVAILABLE = True
 except ImportError:
-    _MOSES_TOK = None
-    _MOSES_DETOK = None
+    _MOSES_AVAILABLE = False
 
 
 class OrderedCounter(Counter, OrderedDict):
@@ -37,7 +29,7 @@ def _segment_words(line, pre_apply=None):
     if pre_apply is not None:
         line = pre_apply(line)
     line = str(line)
-    return line.strip('\r\n ').split(' ')
+    return line.strip('\r\n ').split()
 
 
 def _get_vocabulary(item_list, segment=_segment_words, from_filenames=True):
@@ -60,15 +52,11 @@ def _get_vocabulary(item_list, segment=_segment_words, from_filenames=True):
 class Tokenizer(object):
 
     def __init__(self, vocab_file=None,
-                 additional_tokens=None, use_moses=False, pre_tokenize=None, post_detokenize=None):
+                 additional_tokens=None, use_moses=None):
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
-        if use_moses:
-            assert _MOSES_TOK is not None and _MOSES_DETOK is not None
-            self.pre_tokenize = moses_tokenize
-            self.post_detokenize = moses_detokenize
-        else:
-            self.pre_tokenize = pre_tokenize
-            self.post_detokenize = post_detokenize
+        if use_moses is not None:
+            self._moses_tok = MosesTokenizer(lang=use_moses)
+            self._moses_detok = MosesDetokenizer(lang=use_moses)
         if additional_tokens is not None:
             self.special_tokens += additional_tokens
         self.__word2idx = {}
@@ -78,6 +66,16 @@ class Tokenizer(object):
     @property
     def vocab_size(self):
         return len(self.vocab) + len(self.special_tokens)
+
+    def pre_tokenize(self, line):
+        if hasattr(self, '_moses_tok'):
+            return self._moses_tok.tokenize(line, return_str=True)
+        return line
+
+    def post_detokenize(self, tokens):
+        if hasattr(self, '_moses_detok'):
+            return self._moses_detok.detokenize(tokens, return_str=False)
+        return tokens
 
     def idx2word(self, idx):
         if idx < len(self.special_tokens):
@@ -96,13 +94,12 @@ class Tokenizer(object):
 
     def segment(self, line):
         """segments a line to tokenizable items"""
-        if getattr(self, 'pre_tokenize', None) is not None:
-            line = self.pre_tokenize(line)
+        line = self.pre_tokenize(line)
         return _segment_words(line)
 
     def get_vocab(self, item_list, from_filenames=True, limit=None):
         vocab = _get_vocabulary(item_list=item_list, segment=self.segment,
-                                     from_filenames=from_filenames)
+                                from_filenames=from_filenames)
         self.vocab = vocab.most_common(limit)
         self.update_word2idx()
 
@@ -140,8 +137,7 @@ class Tokenizer(object):
 
     def detokenize(self, inputs, delimiter=u' '):
         token_list = [self.idx2word(idx) for idx in inputs]
-        if getattr(self, 'post_detokenize', None) is not None:
-            token_list = self.post_detokenize(token_list)
+        token_list = self.post_detokenize(token_list)
         outputs = delimiter.join(token_list)
         return outputs
 
@@ -169,8 +165,7 @@ class BPETokenizer(Tokenizer):
     def segment(self, line):
         if not hasattr(self, 'bpe'):
             raise NameError('Learn bpe first!')
-        if getattr(self, 'pre_tokenize', None) is not None:
-            line = self.pre_tokenize(line)
+        line = self.pre_tokenize(line)
         return self.bpe.segment(line.strip('\r\n ')).split(' ')
 
     def learn_bpe(self, item_list, from_filenames=True):
@@ -182,7 +177,6 @@ class BPETokenizer(Tokenizer):
         vocab_words = _get_vocabulary(item_list,
                                       from_filenames=from_filenames,
                                       segment=segment_words)
-
         vocab_list = ['{0} {1}'.format(key, freq)
                       for (key, freq) in vocab_words.items()]
         # learn BPE on combined vocabulary
@@ -208,8 +202,7 @@ class BPETokenizer(Tokenizer):
 class CharTokenizer(Tokenizer):
 
     def segment(self, line):
-        if getattr(self, 'pre_tokenize', None) is not None:
-            line = self.pre_tokenize(line)
+        line = self.pre_tokenize(line)
         return list(line.strip())
 
     def detokenize(self, inputs, delimiter=u''):

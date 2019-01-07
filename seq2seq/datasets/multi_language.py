@@ -65,7 +65,7 @@ class MultiLanguageDataset(object):
 
         if use_moses:
             prefix += '.moses'
-            
+
         if self.tokenizers is None:
             if tokenization not in ['bpe', 'char', 'word']:
                 raise ValueError("An invalid option for tokenization was used, options are {0}".format(
@@ -116,14 +116,14 @@ class MultiLanguageDataset(object):
                                     vocab_file=self.vocab_files[l],
                                     num_symbols=self.num_symbols,
                                     additional_tokens=additional_tokens,
-                                    use_moses=self.use_moses)
+                                    use_moses=l if self.use_moses else None)
                 if not hasattr(tokz, 'bpe'):
                     tokz.learn_bpe(files)
             else:
                 tokz = self.__tokenizers[self.tokenization](
                     vocab_file=self.vocab_files[l],
                     additional_tokens=additional_tokens,
-                    use_moses=self.use_moses)
+                    use_moses=l if self.use_moses else None)
 
             if not hasattr(tokz, 'vocab'):
                 logging.info('generating vocabulary. saving to %s' %
