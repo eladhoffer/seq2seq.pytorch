@@ -61,25 +61,21 @@ def remove_wn_checkpoint(checkpoint):
 
 class Translator(object):
 
-    def __init__(self, checkpoint=None,
-                 model=None, src_tok=None, target_tok=None,
+    def __init__(self, checkpoint,
+                 use_moses=False,
                  beam_size=5,
                  length_normalization_factor=0,
                  max_sequence_length=50,
                  get_attention=False,
                  device="cpu"):
-        assert checkpoint is not None or \
-            model is not None and src_tok is not None and target_tok is not None, \
-            "supply either a checkpoint dictionary or model and tokenizers"
-        if checkpoint is not None:
-            config = checkpoint['config']
-            self.model = getattr(models, config.model)(**config.model_config)
-            self.model.load_state_dict(checkpoint['state_dict'])
-            self.src_tok, self.target_tok = checkpoint['tokenizers'].values()
-        else:
-            self.model = model
-            self.src_tok = src_tok
-            self.target_tok = target_tok
+        config = checkpoint['config']
+        self.model = getattr(models, config.model)(**config.model_config)
+        self.model.load_state_dict(checkpoint['state_dict'])
+        self.src_tok, self.target_tok = checkpoint['tokenizers'].values()
+        if use_moses:
+            src_lang, target_lang = checkpoint['tokenizers'].keys()
+            self.src_tok.enable_moses(lang=src_lang)
+            self.target_tok.enable_moses(lang=target_lang)
         self.insert_target_start = [BOS]
         self.insert_src_start = [BOS]
         self.insert_src_end = [EOS]
@@ -179,14 +175,15 @@ class Translator(object):
 class CaptionGenerator(Translator):
 
     def __init__(self, checkpoint=None,
-                 model=None, image_transform=None,
-                 target_tok=None, beam_size=5,
+                 image_transform=None,
+                 use_moses=False,
+                 beam_size=5,
                  length_normalization_factor=0,
                  max_sequence_length=50,
                  get_attention=False,
                  device="cpu"):
         super(CaptionGenerator, self).__init__(checkpoint=checkpoint,
-                                               model=model, target_tok=target_tok,
+                                               use_moses=use_moses,
                                                beam_size=beam_size,
                                                length_normalization_factor=length_normalization_factor,
                                                max_sequence_length=max_sequence_length,
@@ -230,7 +227,8 @@ class CaptionGenerator(Translator):
                 output = [' '.join([target_priming, o]) for o in output]
             if self.get_attention and seq.attention is not None:
                 _, c, h, w = list(state.outputs.size())
-                attentions = torch.stack([a.view(h, w) for a in seq.attention], 0)
+                attentions = torch.stack([a.view(h, w)
+                                          for a in seq.attention], 0)
                 preds = seq.output[len(self.insert_target_start):]
                 preds = [self.target_tok.idx2word(idx) for idx in preds]
                 return output, (attentions, preds)

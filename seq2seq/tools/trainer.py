@@ -63,7 +63,7 @@ class Seq2SeqTrainer(object):
                  limit_num_tokens=None,
                  save_info={},
                  save_path='.',
-                 checkpoint_filename='checkpoint%s.pth.tar',
+                 checkpoint_filename='checkpoint%s.pth',
                  keep_checkpoints=5,
                  avg_loss_time=True,
                  distributed=False,
@@ -143,7 +143,7 @@ class Seq2SeqTrainer(object):
         return src, target
 
     def iterate(self, src_tuple, target_tuple, training=True):
-        # limit number of tokens o avoid gpu overload
+        # limit number of tokens to avoid gpu overload
         if self.limit_num_tokens is not None:
             src_tuple, target_tuple = self._batch_limit_tokens(
                 src_tuple, target_tuple)

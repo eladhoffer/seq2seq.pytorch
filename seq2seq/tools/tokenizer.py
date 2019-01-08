@@ -51,17 +51,27 @@ def _get_vocabulary(item_list, segment=_segment_words, from_filenames=True):
 
 class Tokenizer(object):
 
-    def __init__(self, vocab_file=None,
-                 additional_tokens=None, use_moses=None):
+    def __init__(self, vocab_file=None, additional_tokens=None, use_moses=None):
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
         if use_moses is not None:
-            self._moses_tok = MosesTokenizer(lang=use_moses)
-            self._moses_detok = MosesDetokenizer(lang=use_moses)
+            self.enable_moses(lang=use_moses)
         if additional_tokens is not None:
             self.special_tokens += additional_tokens
         self.__word2idx = {}
+        self.vocab_file = vocab_file
         if os.path.isfile(vocab_file):
             self.load_vocab(vocab_file)
+
+    def enable_moses(self, lang='en', tokenize=True, detokenize=True):
+        if tokenize:
+            self._moses_tok = MosesTokenizer(lang=lang)
+        else:
+            self._moses_tok = None
+
+        if detokenize:
+            self._moses_detok = MosesDetokenizer(lang=lang)
+        else:
+            self._moses_detok = None
 
     @property
     def vocab_size(self):

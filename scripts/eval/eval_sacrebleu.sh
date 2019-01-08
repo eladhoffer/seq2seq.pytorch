@@ -12,13 +12,14 @@ sacrebleu -t ${WMT} -l ${LANG} --echo src > ${SRC}
 
 echo "Translating ${SRC} into ${TARGET}"
 rm $TARGET
-python translate.py  ${SRC} \
+python translate.py  -i ${SRC} \
   -m "${CHECKPOINT}" \
   -o $TARGET \
-  --batch_size 16 \
-  --device_ids 3 \
-  --max_sequence_length 80 \
-  --beam_size ${BEAM} \
-  --length_normalization 0.6;
+  --batch-size 32 \
+  --device-ids 3 \
+  --use-moses \
+  --max-sequence-length 80 \
+  --beam-size ${BEAM} \
+  --length-normalization 0.6;
 
 cat ${TARGET} | sacrebleu -t ${WMT} -l ${LANG}
