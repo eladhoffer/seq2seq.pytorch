@@ -17,8 +17,8 @@ python translate.py  -i ${SRC} \
   -o $TARGET \
   --batch-size 32 \
   --device-ids 3 \
-  --use-moses \
-  --max-sequence-length 80 \
+  --max-input-length 80 \
+  --max-output-length 80 \
   --beam-size ${BEAM} \
   --length-normalization 0.6;
 

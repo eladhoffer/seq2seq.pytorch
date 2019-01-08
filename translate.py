@@ -20,7 +20,9 @@ parser.add_argument('-o', '--output', help='output file')
 parser.add_argument('-m', '--model', help='model checkpoint file')
 parser.add_argument('--beam-size', default=8, type=int,
                     help='beam size used')
-parser.add_argument('--max-sequence-length', default=50, type=int,
+parser.add_argument('--max-input-length', default=None, type=int,
+                    help='maximum input length')
+parser.add_argument('--max-output-length', default=100, type=int,
                     help='maximum prediciton length')
 parser.add_argument('-b', '--batch-size', default=16, type=int,
                     help='batch size used for inference')
@@ -34,7 +36,7 @@ parser.add_argument('--dtype', default='torch.float',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
 parser.add_argument('--verbose', action='store_true',
                     help='print translations on screen')
-parser.add_argument('--use-moses', action='store_true',
+parser.add_argument('--use-moses', type=bool, default=None,
                     help='enable moses tokenize/detokenize (to evaluate bleu)')
 
 if __name__ == '__main__':
@@ -70,7 +72,8 @@ if __name__ == '__main__':
     translation_model = Translator(checkpoint=checkpoint,
                                    use_moses=args.use_moses,
                                    beam_size=args.beam_size,
-                                   max_sequence_length=args.max_sequence_length,
+                                   max_input_length=args.max_input_length,
+                                   max_output_length=args.max_output_length,
                                    length_normalization_factor=args.length_normalization,
                                    device=args.device)
 

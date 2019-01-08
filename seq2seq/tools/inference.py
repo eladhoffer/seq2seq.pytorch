@@ -62,16 +62,19 @@ def remove_wn_checkpoint(checkpoint):
 class Translator(object):
 
     def __init__(self, checkpoint,
-                 use_moses=False,
+                 use_moses=None,
                  beam_size=5,
                  length_normalization_factor=0,
-                 max_sequence_length=50,
+                 max_input_length=None,
+                 max_output_length=50,
                  get_attention=False,
                  device="cpu"):
         config = checkpoint['config']
         self.model = getattr(models, config.model)(**config.model_config)
         self.model.load_state_dict(checkpoint['state_dict'])
         self.src_tok, self.target_tok = checkpoint['tokenizers'].values()
+        if use_moses is None:  # if not set, turn on if training was done with moses pretok
+            use_moses = config.data_config.get('moses_pretok', False)
         if use_moses:
             src_lang, target_lang = checkpoint['tokenizers'].keys()
             self.src_tok.enable_moses(lang=src_lang)
@@ -85,7 +88,8 @@ class Translator(object):
         self.model.eval()
 
         self.beam_size = beam_size
-        self.max_sequence_length = max_sequence_length
+        self.max_input_length = max_input_length
+        self.max_output_length = max_output_length
         self.get_attention = get_attention
         self.length_normalization_factor = length_normalization_factor
         self.pack_encoder_inputs = getattr(self.model.encoder, 'pack_inputs',
@@ -139,6 +143,7 @@ class Translator(object):
                 bos = [list(bos)] * batch
 
         src = batch_sequences(src_tok,
+                              max_length=self.max_input_length,
                               sort=False,
                               pack=self.pack_encoder_inputs,
                               device=self.device,
@@ -147,7 +152,7 @@ class Translator(object):
         with torch.no_grad():
             seqs = self.model.generate(src, bos,
                                        beam_size=self.beam_size,
-                                       max_sequence_length=self.max_sequence_length,
+                                       max_sequence_length=self.max_output_length,
                                        length_normalization_factor=self.length_normalization_factor,
                                        get_attention=self.get_attention, devices=None)
         # remove forced  tokens
@@ -179,14 +184,14 @@ class CaptionGenerator(Translator):
                  use_moses=False,
                  beam_size=5,
                  length_normalization_factor=0,
-                 max_sequence_length=50,
+                 max_output_length=50,
                  get_attention=False,
                  device="cpu"):
         super(CaptionGenerator, self).__init__(checkpoint=checkpoint,
                                                use_moses=use_moses,
                                                beam_size=beam_size,
                                                length_normalization_factor=length_normalization_factor,
-                                               max_sequence_length=max_sequence_length,
+                                               max_output_length=max_output_length,
                                                get_attention=get_attention, device=device)
         self.image_transform = image_transform or self.src_tok(
             allow_var_size=False, train=False)
@@ -217,7 +222,7 @@ class CaptionGenerator(Translator):
             src_img = src_img.unsqueeze(0).unsqueeze(0).to(self.device)
             seq = self.model.generate(src_img, [bos],
                                       beam_size=self.beam_size,
-                                      max_sequence_length=self.max_sequence_length,
+                                      max_output_length=self.max_output_length,
                                       length_normalization_factor=self.length_normalization_factor,
                                       get_attention=self.get_attention)
             # remove forced  tokens
