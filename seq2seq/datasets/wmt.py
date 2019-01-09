@@ -17,6 +17,7 @@ class WMT(MultiLanguageDataset):
                  shared_vocab=True,
                  code_files=None,
                  vocab_files=None,
+                 model_prefixes=None,
                  insert_start=[BOS],
                  insert_end=[EOS],
                  mark_language=False,
@@ -27,7 +28,8 @@ class WMT(MultiLanguageDataset):
                  train_file="{root}/train{pretok}.clean",
                  val_file="{root}/newstest2014{pretok}.clean",
                  test_file="{root}/newstest2016{pretok}.clean",
-                 load_data=True):
+                 load_data=True,
+                 sample=False):
         pretok = '.tok' if moses_pretok else ''
         train_prefix = train_file.format(root=root, pretok=pretok)
         options = dict(
@@ -39,12 +41,14 @@ class WMT(MultiLanguageDataset):
             shared_vocab=shared_vocab,
             code_files=code_files,
             vocab_files=vocab_files,
+            model_prefixes=model_prefixes,
             insert_start=insert_start,
             insert_end=insert_end,
             mark_language=mark_language,
             tokenizers=tokenizers,
             vocab_limit=vocab_limit,
-            load_data=False
+            load_data=False,
+            sample=sample
         )
         train_options = deepcopy(options)
 

@@ -24,12 +24,12 @@ parser.add_argument('--dataset', metavar='DATASET', default='WMT16_de_en',
                     help='dataset used: ' +
                     ' | '.join(datasets.__all__) +
                     ' (default: WMT16_de_en)')
-parser.add_argument('--dataset_dir', metavar='DATASET_DIR',
+parser.add_argument('--dataset-dir', metavar='DATASET_DIR',
                     help='dataset dir')
-parser.add_argument('--data_config',
+parser.add_argument('--data-config',
                     default="{'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}",
                     help='data configuration')
-parser.add_argument('--results_dir', metavar='RESULTS_DIR', default='./results',
+parser.add_argument('--results-dir', metavar='RESULTS_DIR', default='./results',
                     help='results dir')
 parser.add_argument('--save', metavar='SAVE', default='',
                     help='saved folder')
@@ -38,9 +38,9 @@ parser.add_argument('--model', metavar='MODEL', default='RecurrentAttentionSeq2S
                     help='model architecture: ' +
                     ' | '.join(models.__all__) +
                     ' (default: RecurrentAttentionSeq2Seq)')
-parser.add_argument('--model_config', default="{'hidden_size:256','num_layers':2}",
+parser.add_argument('--model-config', default="{'hidden_size:256','num_layers':2}",
                     help='architecture configuration')
-parser.add_argument('--device_ids', default='0',
+parser.add_argument('--device-ids', default='0',
                     help='device ids assignment (e.g "0,1", {"encoder":0, "decoder":1})')
 parser.add_argument('--device', default='cuda',
                     help='device assignment ("cpu" or "cuda")')
@@ -67,7 +67,7 @@ parser.add_argument('--dist-init', default='env://', type=str,
                     help='init used to set up distributed training')
 parser.add_argument('--dist-backend', default='nccl', type=str,
                     help='distributed backend')
-parser.add_argument('--optimization_config',
+parser.add_argument('--optimization-config',
                     default="[{'epoch':0, 'optimizer':'SGD', 'lr':0.1, 'momentum':0.9}]",
                     type=str, metavar='OPT',
                     help='optimization regime used')
@@ -85,18 +85,21 @@ parser.add_argument('--grad_clip', default='5.', type=str,
                     help='maximum grad norm value')
 parser.add_argument('--embedding_grad_clip', default=None, type=float,
                     help='maximum embedding grad norm value')
-parser.add_argument('--label_smoothing', default=0, type=float,
+parser.add_argument('--label-smoothing', default=0, type=float,
                     help='label smoothing coefficient - default 0')
 parser.add_argument('--uniform_init', default=None, type=float,
                     help='if value not None - init weights to U(-value,value)')
-parser.add_argument('--max_length', default=100, type=int,
+parser.add_argument('--max-length', default=100, type=int,
                     help='maximum sequence length')
-parser.add_argument('--max_tokens', default=None, type=int,
+parser.add_argument('--max-tokens', default=None, type=int,
                     help='maximum sequence tokens')
-parser.add_argument('--limit_num_tokens', default=None, type=int,
+parser.add_argument('--fixed-length', default=None, type=int,
+                    help='fixed sequence length')
+parser.add_argument('--limit-num-tokens', default=None, type=int,
                     help='trim batch size to fit maximum num of tokens')
 parser.add_argument('--seed', default=123, type=int,
                     help='random seed (default: 123)')
+
 
 def main(args):
     set_global_seeds(args.seed)
@@ -139,7 +142,7 @@ def main(args):
     dataset = getattr(datasets, args.dataset)
     args.data_config = literal_eval(args.data_config)
     args.grad_clip = literal_eval(args.grad_clip)
-    train_data = dataset(args.dataset_dir, split='train', **args.data_config)
+    train_data = dataset(args.dataset_dir, split='train', sample=True, **args.data_config)
     val_data = dataset(args.dataset_dir, split='dev', **args.data_config)
     src_tok, target_tok = train_data.tokenizers.values()
 
@@ -170,20 +173,20 @@ def main(args):
     train_loader = train_data.get_loader(batch_size=args.batch_size,
                                          batch_first=batch_first,
                                          shuffle=train_sampler is None,
-                                         augment=True,
                                          sampler=train_sampler,
                                          pack=pack_encoder_inputs,
                                          max_length=args.max_length,
                                          max_tokens=args.max_tokens,
+                                         fixed_length=args.fixed_length,
                                          num_workers=args.workers,
                                          drop_last=True)
     val_loader = val_data.get_loader(batch_size=args.batch_size,
                                      batch_first=batch_first,
                                      shuffle=False,
-                                     augment=False,
                                      pack=pack_encoder_inputs,
                                      max_length=args.max_length,
                                      max_tokens=args.max_tokens,
+                                     fixed_length=args.fixed_length,
                                      num_workers=args.workers)
 
     trainer_options = dict(

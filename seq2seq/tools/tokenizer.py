@@ -20,6 +20,12 @@ try:
 except ImportError:
     _MOSES_AVAILABLE = False
 
+try:
+    import sentencepiece as spm
+    _SENTENCEPIECE_AVAILABLE = True
+except ImportError:
+    _SENTENCEPIECE_AVAILABLE = False
+
 
 class OrderedCounter(Counter, OrderedDict):
     pass
@@ -102,7 +108,7 @@ class Tokenizer(object):
     def word2idx(self, word):
         return self.__word2idx.get(word, UNK)
 
-    def segment(self, line):
+    def segment(self, line, sample=None):
         """segments a line to tokenizable items"""
         line = self.pre_tokenize(line)
         return _segment_words(line)
@@ -133,7 +139,7 @@ class Tokenizer(object):
         self.vocab = vocab.most_common(limit)
         self.update_word2idx()
 
-    def tokenize(self, line, insert_start=None, insert_end=None):
+    def tokenize(self, line, insert_start=None, insert_end=None, sample=None):
         """tokenize a line, insert_start and insert_end are lists of tokens"""
         inputs = self.segment(line)
         targets = []
@@ -217,3 +223,88 @@ class CharTokenizer(Tokenizer):
 
     def detokenize(self, inputs, delimiter=u''):
         return super(CharTokenizer, self).detokenize(inputs, delimiter)
+
+
+class SentencePiece(Tokenizer):
+    def __init__(self, model_prefix, additional_tokens=None,
+                 num_symbols=10000, model_type='unigram', character_coverage=None):
+        assert _SENTENCEPIECE_AVAILABLE
+        self.model_prefix = os.path.abspath(model_prefix)
+        self.num_symbols = num_symbols
+        self.model_type = model_type
+        self.character_coverage = character_coverage
+        self.vocab_file = '{}.vocab'.format(model_prefix)
+        self.model_file = '{}.model'.format(model_prefix)
+        self.model = None
+        if additional_tokens is not None:
+            self.special_tokens += additional_tokens
+        if os.path.isfile(self.model_file):
+            self.load_model(self.model_file)
+
+    def load_model(self, model_file):
+        self.model = spm.SentencePieceProcessor()
+        self.model.Load(model_file)
+
+    def learn_model(self, file_list, limit=None):
+        file_list = ','.join([os.path.abspath(filename)
+                              for filename in file_list])
+        self.train_sp_model(input=file_list, model_prefix=self.model_prefix,
+                   vocab_size=self.num_symbols, character_coverage=self.character_coverage, model_type=self.model_type)
+        self.load_model(self.model_file)
+
+    def tokenize(self, line, insert_start=None, insert_end=None, sample=None):
+        """tokenize a line, insert_start and insert_end are lists of tokens"""
+        if sample is None or sample is False:
+            targets = self.model.EncodeAsIds(line)
+        else:
+            sample = sample if isinstance(sample, dict) else {}
+            sample.setdefault('nbest_size', 64)
+            sample.setdefault('alpha', 0.1)
+            targets = self.model.SampleEncodeAsIds(line, **sample)
+        if insert_start is not None:
+            targets = insert_start + targets
+        if insert_end is not None:
+            targets += insert_end
+        return torch.LongTensor(targets)
+
+    def detokenize(self, inputs):
+        outputs = self.model.DecodeIds(inputs.tolist())
+        return outputs
+
+    def idx2word(self, idx):
+        return self.model.IdToPiece(idx)
+
+    def word2idx(self, word):
+        return self.model.PieceToId(word)
+
+    def segment(self, line, sample=None):
+        """segments a line to tokenizable items"""
+        if sample is None or sample is False:
+            return self.model.EncodeAsPieces(line)
+        else:
+            sample = sample if isinstance(sample, dict) else {}
+            sample.setdefault('nbest_size', 64)
+            sample.setdefault('alpha', 0.1)
+            return self.model.SampleEncodeAsPieces(line, **sample)
+
+    @property
+    def vocab_size(self):
+        return len(self.model)
+
+    @staticmethod
+    def train_sp_model(**kwargs):
+        """possible arguments:
+        --input: one-sentence-per-line raw corpus file. You can pass a comma-separated list of files.
+        --model_prefix: output model name prefix. <model_name>.model and <model_name>.vocab are generated.
+        --vocab_size: vocabulary size, e.g., 8000, 16000, or 32000
+        --character_coverage: amount of characters covered by the model
+        --model_type: model type. Choose from unigram (default), bpe, char, or word. The input sentence must be pretokenized when using word type.
+        """
+        kwargs.update({'unk_piece': UNK_TOKEN, 'bos_piece': BOS_TOKEN,
+                       'eos_piece': EOS_TOKEN, 'pad_piece': PAD_TOKEN,
+                       'unk_id': UNK, 'bos_id': BOS,
+                       'eos_id': EOS, 'pad_id': PAD
+                       })
+        config = ' '.join(['--{}={}'.format(name, value)
+                           for name, value in kwargs.items() if value is not None])
+        spm.SentencePieceTrainer.Train(config)

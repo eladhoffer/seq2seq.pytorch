@@ -5,12 +5,12 @@ from copy import copy, deepcopy
 import torch
 from collections import OrderedDict
 from .text import LinedTextDataset
-from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer
+from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer, SentencePiece
 from seq2seq.tools.config import *
 from seq2seq.tools import batch_sequences
 
 
-def create_padded_batch(max_length=100, max_tokens=None,
+def create_padded_batch(max_length=100, max_tokens=None, fixed_length=None,
                         batch_first=False, sort=False,
                         pack=False, augment=False):
     def collate(seqs, sort=sort, pack=pack):
@@ -23,6 +23,7 @@ def create_padded_batch(max_length=100, max_tokens=None,
                           for i, s in enumerate(zip(*seqs))])
         return batch_sequences(seqs, max_length=max_length,
                                max_tokens=max_tokens,
+                               fixed_length=fixed_length,
                                batch_first=batch_first,
                                sort=False, pack=pack, augment=augment)
     return collate
@@ -33,7 +34,8 @@ class MultiLanguageDataset(object):
     __tokenizers = {
         'word': Tokenizer,
         'char': CharTokenizer,
-        'bpe': BPETokenizer
+        'bpe': BPETokenizer,
+        'sentencepiece': SentencePiece,
     }
 
     def __init__(self, prefix,
@@ -44,11 +46,13 @@ class MultiLanguageDataset(object):
                  shared_vocab=True,
                  code_files=None,
                  vocab_files=None,
+                 model_prefixes=None,
                  insert_start=[BOS], insert_end=[EOS],
                  mark_language=False,
                  tokenizers=None,
                  vocab_limit=None,
-                 load_data=True):
+                 load_data=True,
+                 sample=False):
         super(MultiLanguageDataset, self).__init__()
         self.languages = languages
         self.shared_vocab = shared_vocab
@@ -60,6 +64,7 @@ class MultiLanguageDataset(object):
         self.insert_end = insert_end
         self.vocab_limit = vocab_limit
         self.mark_language = mark_language
+        self.sample = sample
         self.input_files = {l: '{prefix}.{lang}'.format(
             prefix=prefix, lang=l) for l in languages}
 
@@ -67,9 +72,9 @@ class MultiLanguageDataset(object):
             prefix += '.moses'
 
         if self.tokenizers is None:
-            if tokenization not in ['bpe', 'char', 'word']:
+            if tokenization not in ['sentencepiece', 'bpe', 'char', 'word']:
                 raise ValueError("An invalid option for tokenization was used, options are {0}".format(
-                    ','.join(['bpe', 'char', 'word'])))
+                    ','.join(['sentencepiece', 'bpe', 'char', 'word'])))
 
             if tokenization == 'bpe':
                 if not shared_vocab:
@@ -87,6 +92,14 @@ class MultiLanguageDataset(object):
                     vocab = vocab_files or '{prefix}.{tok}.shared_vocab_{num_symbols}_{languages}'.format(
                         prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
                     self.vocab_files = {l: vocab for l in languages}
+            elif tokenization == 'sentencepiece':
+                if not shared_vocab:
+                    self.model_prefixes = model_prefixes or {l: '{prefix}.{lang}.{tok}.{num_symbols}'.format(
+                        prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
+                else:
+                    model_prefix = model_prefixes or '{prefix}.{tok}.{num_symbols}_{languages}'.format(
+                        prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
+                    self.model_prefixes = {l: model_prefix for l in languages}
             else:
                 if not shared_vocab:
                     self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab'.format(
@@ -110,27 +123,34 @@ class MultiLanguageDataset(object):
                 files = [self.input_files[t] for t in self.languages]
             else:
                 files = [self.input_files[l]]
-
-            if self.tokenization == 'bpe':
-                tokz = BPETokenizer(self.code_files[l],
-                                    vocab_file=self.vocab_files[l],
-                                    num_symbols=self.num_symbols,
-                                    additional_tokens=additional_tokens,
-                                    use_moses=l if self.use_moses else None)
-                if not hasattr(tokz, 'bpe'):
-                    tokz.learn_bpe(files)
+            if self.tokenization == 'sentencepiece':
+                tokz = SentencePiece(self.model_prefixes[l],
+                                     num_symbols=self.num_symbols,
+                                     additional_tokens=additional_tokens)
+                if getattr(tokz, 'model', None) is None:
+                    tokz.learn_model(files)
             else:
-                tokz = self.__tokenizers[self.tokenization](
-                    vocab_file=self.vocab_files[l],
-                    additional_tokens=additional_tokens,
-                    use_moses=l if self.use_moses else None)
+                if self.tokenization == 'bpe':
+                    tokz = BPETokenizer(self.code_files[l],
+                                        vocab_file=self.vocab_files[l],
+                                        num_symbols=self.num_symbols,
+                                        additional_tokens=additional_tokens,
+                                        use_moses=l if self.use_moses else None)
+                    if not hasattr(tokz, 'bpe'):
+                        tokz.learn_bpe(files)
 
-            if not hasattr(tokz, 'vocab'):
-                logging.info('generating vocabulary. saving to %s' %
-                             self.vocab_files[l])
-                tokz.get_vocab(files)
-                tokz.save_vocab(self.vocab_files[l])
-            tokz.load_vocab(self.vocab_files[l], limit=self.vocab_limit)
+                else:
+                    tokz = self.__tokenizers[self.tokenization](
+                        vocab_file=self.vocab_files[l],
+                        additional_tokens=additional_tokens,
+                        use_moses=l if self.use_moses else None)
+
+                if not hasattr(tokz, 'vocab'):
+                    logging.info('generating vocabulary. saving to %s' %
+                                self.vocab_files[l])
+                    tokz.get_vocab(files)
+                    tokz.save_vocab(self.vocab_files[l])
+                tokz.load_vocab(self.vocab_files[l], limit=self.vocab_limit)
             self.tokenizers[l] = tokz
 
     def load_data(self):
@@ -145,10 +165,12 @@ class MultiLanguageDataset(object):
 
             def transform(txt, tokenizer=self.tokenizers[l],
                           insert_start=insert_start,
-                          insert_end=insert_end):
+                          insert_end=insert_end,
+                          sample=self.sample):
                 return tokenizer.tokenize(txt,
                                           insert_start=insert_start,
-                                          insert_end=insert_end)
+                                          insert_end=insert_end,
+                                          sample=sample)
             self.datasets[l] = LinedTextDataset(
                 self.input_files[l], transform=transform)
 
@@ -171,11 +193,11 @@ class MultiLanguageDataset(object):
 
     def get_loader(self, batch_size=1, shuffle=False, sort=False, pack=False,
                    augment=False, languages=None, sampler=None, num_workers=0,
-                   max_length=100, max_tokens=None, batch_first=False,
+                   max_length=100, max_tokens=None, fixed_length=None, batch_first=False,
                    pin_memory=False, drop_last=False):
         collate_fn = create_padded_batch(
             max_length=max_length, max_tokens=max_tokens, batch_first=batch_first,
-            sort=sort, pack=pack, augment=augment)
+            fixed_length=fixed_length, sort=sort, pack=pack, augment=augment)
         return torch.utils.data.DataLoader(self,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,
