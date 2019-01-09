@@ -16,7 +16,7 @@ def _limit_lengths(seqs, max_length=None, max_tokens=None):
     return lengths
 
 
-def batch_sequences(seqs, max_length=None, max_tokens=None, batch_first=False, pad_value=PAD,
+def batch_sequences(seqs, max_length=None, max_tokens=None, fixed_length=None, batch_first=False, pad_value=PAD,
                     sort=False, pack=False, augment=False, device=None, dtype=torch.long):
     """
     seqs: a list of Tensors to be batched together
@@ -25,7 +25,9 @@ def batch_sequences(seqs, max_length=None, max_tokens=None, batch_first=False, p
 
     """
     batch_dim, time_dim = (0, 1) if batch_first else (1, 0)
-    if len(seqs) == 1:
+    if fixed_length is not None:
+        fixed_length = max_length = min(max_length, fixed_length)
+    if len(seqs) == 1 and not fixed_length:
         lengths = _limit_lengths(seqs, max_length, max_tokens)
         seq_tensor = seqs[0].view(-1,)[:lengths[0]]
         seq_tensor = seq_tensor.unsqueeze(batch_dim)\
@@ -34,7 +36,8 @@ def batch_sequences(seqs, max_length=None, max_tokens=None, batch_first=False, p
         if sort:
             seqs.sort(key=len, reverse=True)
         lengths = _limit_lengths(seqs, max_length, max_tokens)
-        batch_length = max(lengths)
+        batch_length = max(lengths) if fixed_length is None\
+            else fixed_length
         tensor_size = (len(seqs), batch_length) if batch_first \
             else (batch_length, len(seqs))
         seq_tensor = torch.full(tensor_size, pad_value,
