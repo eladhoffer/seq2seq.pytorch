@@ -1,0 +1,7 @@
+torch
+torchvision
+bokeh
+pandas
+sacrebleu
+sacremoses
+sentencepiece
