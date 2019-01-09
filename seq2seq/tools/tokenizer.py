@@ -4,6 +4,7 @@ import os
 import string
 import codecs
 import logging
+import tempfile
 import sys
 from collections import Counter, OrderedDict
 import torch
@@ -241,9 +242,24 @@ class SentencePiece(Tokenizer):
         if os.path.isfile(self.model_file):
             self.load_model(self.model_file)
 
+    def serialize_model(self, model_file):
+        with open(model_file, 'rb') as f:
+            return f.read()
+
+    def deserialize_model(self, model_serialized):
+        fd, path = tempfile.mkstemp()
+        try:
+            with os.fdopen(fd, 'wb') as tmp:
+                # do stuff with temp file
+                tmp.write(model_serialized)
+            self.load_model(path)
+        finally:
+            os.remove(path)
+
     def load_model(self, model_file):
         self.model = spm.SentencePieceProcessor()
         self.model.Load(model_file)
+        self._model_serialized = self.serialize_model(model_file)
 
     def learn_model(self, file_list, limit=None):
         file_list = ','.join([os.path.abspath(filename)
@@ -308,3 +324,11 @@ class SentencePiece(Tokenizer):
         config = ' '.join(['--{}={}'.format(name, value)
                            for name, value in kwargs.items() if value is not None])
         spm.SentencePieceTrainer.Train(config)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['model']
+        return state
+
+    def __setstate__(self, newstate):
+        self.deserialize_model(newstate['_model_serialized'])
