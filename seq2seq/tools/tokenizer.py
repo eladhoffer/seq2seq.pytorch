@@ -153,7 +153,7 @@ class Tokenizer(object):
         return torch.LongTensor(targets)
 
     def detokenize(self, inputs, delimiter=u' '):
-        token_list = [self.idx2word(idx) for idx in inputs]
+        token_list = [self.idx2word(int(idx)) for idx in inputs]
         token_list = self.post_detokenize(token_list)
         outputs = delimiter.join(token_list)
         return outputs
@@ -284,7 +284,7 @@ class SentencePiece(Tokenizer):
         return torch.LongTensor(targets)
 
     def detokenize(self, inputs):
-        outputs = self.model.DecodeIds(inputs.tolist())
+        outputs = self.model.DecodeIds([int(idx) for idx in inputs])
         return outputs
 
     def idx2word(self, idx):
