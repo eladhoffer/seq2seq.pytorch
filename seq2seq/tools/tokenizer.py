@@ -228,12 +228,14 @@ class CharTokenizer(Tokenizer):
 
 class SentencePiece(Tokenizer):
     def __init__(self, model_prefix, additional_tokens=None,
-                 num_symbols=10000, model_type='unigram', character_coverage=None):
+                 num_symbols=10000, model_type='unigram',
+                 character_coverage=None, split_by_whitespace=False):
         assert _SENTENCEPIECE_AVAILABLE
         self.model_prefix = os.path.abspath(model_prefix)
         self.num_symbols = num_symbols
         self.model_type = model_type
         self.character_coverage = character_coverage
+        self.split_by_whitespace = split_by_whitespace
         self.vocab_file = '{}.vocab'.format(model_prefix)
         self.model_file = '{}.model'.format(model_prefix)
         self.model = None
@@ -250,7 +252,6 @@ class SentencePiece(Tokenizer):
         fd, path = tempfile.mkstemp()
         try:
             with os.fdopen(fd, 'wb') as tmp:
-                # do stuff with temp file
                 tmp.write(model_serialized)
             self.load_model(path)
         finally:
@@ -261,11 +262,16 @@ class SentencePiece(Tokenizer):
         self.model.Load(model_file)
         self._model_serialized = self.serialize_model(model_file)
 
-    def learn_model(self, file_list, limit=None):
+    def learn_model(self, file_list, **kwargs):
         file_list = ','.join([os.path.abspath(filename)
                               for filename in file_list])
-        self.train_sp_model(input=file_list, model_prefix=self.model_prefix,
-                   vocab_size=self.num_symbols, character_coverage=self.character_coverage, model_type=self.model_type)
+        self.train_sp_model(input=file_list,
+                            model_prefix=self.model_prefix,
+                            vocab_size=self.num_symbols,
+                            character_coverage=self.character_coverage,
+                            model_type=self.model_type,
+                            split_by_whitespace=self.split_by_whitespace,
+                            **kwargs)
         self.load_model(self.model_file)
 
     def tokenize(self, line, insert_start=None, insert_end=None, sample=None):
@@ -321,6 +327,9 @@ class SentencePiece(Tokenizer):
                        'unk_id': UNK, 'bos_id': BOS,
                        'eos_id': EOS, 'pad_id': PAD
                        })
+        for arg, val in kwargs.items():
+            if isinstance(val, bool):
+                kwargs[arg] = 'true' if val else 'false'
         config = ' '.join(['--{}={}'.format(name, value)
                            for name, value in kwargs.items() if value is not None])
         spm.SentencePieceTrainer.Train(config)
@@ -332,3 +341,4 @@ class SentencePiece(Tokenizer):
 
     def __setstate__(self, newstate):
         self.deserialize_model(newstate['_model_serialized'])
+
