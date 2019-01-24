@@ -56,6 +56,28 @@ def _get_vocabulary(item_list, segment=_segment_words, from_filenames=True):
     return vocab
 
 
+def _get_double_vocabulary(item_list, segment_words=_segment_words, segment_chars=lambda w: list(w.strip()), from_filenames=True):
+    vocab_words = OrderedCounter()
+    vocab_chars = OrderedCounter()
+    if from_filenames:
+        filenames = item_list
+        # get combined vocabulary of all input files
+        for fname in filenames:
+            with codecs.open(fname, encoding='UTF-8') as f:
+                for line in f:
+                    for word in segment_words(line):
+                        vocab_words[word] += 1
+                        for char in segment_chars(word):
+                            vocab_chars[char] += 1
+    else:
+        for line in item_list:
+            for word in segment_words(line):
+                vocab_words[word] += 1
+                for char in segment_chars(word):
+                    vocab_chars[char] += 1
+    return vocab_words, vocab_chars
+
+
 class Tokenizer(object):
 
     def __init__(self, vocab_file=None, additional_tokens=None, use_moses=None):
@@ -342,3 +364,69 @@ class SentencePiece(Tokenizer):
     def __setstate__(self, newstate):
         self.deserialize_model(newstate['_model_serialized'])
 
+
+class WordCharTokenizer(Tokenizer):
+
+    def __init__(self, word_vocab_file=None, word_additional_tokens=None,  char_vocab_file=None, char_additional_tokens=None):
+        self.word_tokenizer = Tokenizer(
+            vocab_file=word_vocab_file, additional_tokens=word_additional_tokens)
+        self.char_tokenizer = CharTokenizer(
+            vocab_file=char_vocab_file, additional_tokens=char_additional_tokens)
+
+    @property
+    def vocab_size(self):
+        return self.word_tokenizer.vocab_size, self.char_tokenizer.vocab_size
+
+    def segment(self, line, sample=None):
+        """segments a line to tokenizable items"""
+        words = self.word_tokenizer.segment(line, sample=sample)
+        chars = [self.char_tokenizer.segment(word) for word in words]
+        return words, chars
+
+    def get_vocab(self, item_list, from_filenames=True, limit=None):
+        vocab_words, vocab_chars = _get_double_vocabulary(item_list=item_list, segment_words=self.word_tokenizer.segment,
+                                                          segment_chars=self.char_tokenizer.segment,
+                                                          from_filenames=from_filenames)
+        self.word_tokenizer.vocab = vocab_words.most_common(limit)
+        self.word_tokenizer.update_word2idx()
+        self.char_tokenizer.vocab = vocab_chars.most_common(limit)
+        self.char_tokenizer.update_word2idx()
+
+    def save_vocab(self, word_vocab_filename, char_vocab_filename):
+        self.word_tokenizer.save_vocab(word_vocab_filename)
+        self.char_tokenizer.save_vocab(char_vocab_filename)
+
+    def load_vocab(self, word_vocab_filename, char_vocab_filename, limit=None, min_count=1):
+        self.word_tokenizer.load_vocab(
+            word_vocab_filename, limit=limit, min_count=min_count)
+        self.char_tokenizer.load_vocab(
+            char_vocab_filename, limit=limit, min_count=min_count)
+
+    def tokenize(self, line, insert_start=None, insert_end=None, sample=None):
+        """tokenize a line, insert_start and insert_end are lists of tokens"""
+        word_inputs = self.word_tokenizer.segment(line, sample=sample)
+
+        target_words = []
+        if insert_start is not None:
+            target_words += insert_start
+        for w in word_inputs:
+            target_words.append(self.word_tokenizer.word2idx(w))
+        if insert_end is not None:
+            target_words += insert_end
+        word_tokens = torch.LongTensor(target_words)
+
+        char_tokens = []
+        for i, word in enumerate(word_inputs):
+            insert_start_word = insert_start if i == 0 else None
+            insert_end_word = insert_end if i == len(word_inputs) - 1 else None
+            char_tokens.append(self.char_tokenizer.tokenize(word,
+                insert_start=insert_start_word, insert_end=insert_end_word, sample=sample))
+        return word_tokens, char_tokens
+
+    def detokenize(self, inputs, delimiter=u' '):
+        token_list = []
+        for word in inputs:
+            token_list.append(self.char_tokenizer.detokenize(word))
+        token_list = self.post_detokenize(token_list)
+        outputs = delimiter.join(token_list)
+        return outputs
