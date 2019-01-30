@@ -114,7 +114,7 @@ def main(args):
 
     args.distributed = args.local_rank >= 0 or args.world_size > 1
     setup_logging(os.path.join(save_path, 'log.txt'),
-                  dummy=args.distributed and args.local_rank > 0)
+                  dummy=args.distributed and torch.distributed.get_rank() > 0)
 
     if args.distributed:
         args.device_ids = args.local_rank
@@ -142,7 +142,8 @@ def main(args):
     dataset = getattr(datasets, args.dataset)
     args.data_config = literal_eval(args.data_config)
     args.grad_clip = literal_eval(args.grad_clip)
-    train_data = dataset(args.dataset_dir, split='train', sample=True, **args.data_config)
+    train_data = dataset(args.dataset_dir, split='train',
+                         sample=True, **args.data_config)
     val_data = dataset(args.dataset_dir, split='dev', **args.data_config)
     src_tok, target_tok = train_data.tokenizers.values()
 

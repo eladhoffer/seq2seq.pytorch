@@ -320,7 +320,7 @@ class Seq2SeqTrainer(object):
                 plot_perplexity += ['validation perplexity']
                 plot_accuracy += ['validation accuracy']
 
-            if self.distributed and self.local_rank > 0:
+            if self.distributed and torch.distributed.get_rank() > 0:
                 continue
             self.results.add(**results)
             self.results.plot(x='training steps', y=plot_perplexity,
@@ -350,6 +350,8 @@ class Seq2SeqTrainer(object):
             logging.error('invalid checkpoint: {}'.format(filename))
 
     def save(self, filename=None, identifier=None, is_best=False, save_all=False):
+        if self.distributed and torch.distributed.get_rank() > 0:  # avoid multiple writes
+            return
         state = {
             'epoch': self.epoch,
             'training_steps': self.training_steps,
