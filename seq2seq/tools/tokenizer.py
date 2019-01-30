@@ -251,7 +251,7 @@ class CharTokenizer(Tokenizer):
 class SentencePiece(Tokenizer):
     def __init__(self, model_prefix, additional_tokens=None,
                  num_symbols=10000, model_type='unigram',
-                 character_coverage=None, split_by_whitespace=False):
+                 character_coverage=None, split_by_whitespace=True):
         assert _SENTENCEPIECE_AVAILABLE
         self.model_prefix = os.path.abspath(model_prefix)
         self.num_symbols = num_symbols
@@ -377,6 +377,13 @@ class WordCharTokenizer(Tokenizer):
     def vocab_size(self):
         return self.word_tokenizer.vocab_size, self.char_tokenizer.vocab_size
 
+    def common_words(self, num=None, sample=None):
+        special = [torch.LongTensor([self.char_tokenizer.word2idx(t)])
+                   for t in self.char_tokenizer.special_tokens]
+        words = [w for w, _ in self.word_tokenizer.vocab[:num]]# self.words_freq_list.most_common(num)]
+
+        return special + [self.char_tokenizer.tokenize(word) for word in words]
+
     def segment(self, line, sample=None):
         """segments a line to tokenizable items"""
         words = self.word_tokenizer.segment(line, sample=sample)
@@ -387,6 +394,7 @@ class WordCharTokenizer(Tokenizer):
         vocab_words, vocab_chars = _get_double_vocabulary(item_list=item_list, segment_words=self.word_tokenizer.segment,
                                                           segment_chars=self.char_tokenizer.segment,
                                                           from_filenames=from_filenames)
+        self.words_freq_list = vocab_words
         self.word_tokenizer.vocab = vocab_words.most_common(limit)
         self.word_tokenizer.update_word2idx()
         self.char_tokenizer.vocab = vocab_chars.most_common(limit)
@@ -407,20 +415,21 @@ class WordCharTokenizer(Tokenizer):
         word_inputs = self.word_tokenizer.segment(line, sample=sample)
 
         target_words = []
+        char_tokens = []
+
         if insert_start is not None:
             target_words += insert_start
+            char_tokens += [torch.LongTensor(insert_start)]
         for w in word_inputs:
             target_words.append(self.word_tokenizer.word2idx(w))
+
+        for i, word in enumerate(word_inputs):
+            char_tokens.append(
+                self.char_tokenizer.tokenize(word, sample=sample))
         if insert_end is not None:
             target_words += insert_end
+            char_tokens += [torch.LongTensor(insert_end)]
         word_tokens = torch.LongTensor(target_words)
-
-        char_tokens = []
-        for i, word in enumerate(word_inputs):
-            insert_start_word = insert_start if i == 0 else None
-            insert_end_word = insert_end if i == len(word_inputs) - 1 else None
-            char_tokens.append(self.char_tokenizer.tokenize(word,
-                insert_start=insert_start_word, insert_end=insert_end_word, sample=sample))
         return word_tokens, char_tokens
 
     def detokenize(self, inputs, delimiter=u' '):

@@ -58,3 +58,46 @@ def batch_sequences(seqs, max_length=None, max_tokens=None, fixed_length=None, b
             seq_tensor = PackedSequence(seq_tensor.data,
                                         seq_tensor.batch_sizes.to(device))
     return (seq_tensor, lengths)
+
+
+def batch_nested_sequences(seqs_subseqs, max_length=None, max_tokens=None, fixed_length=None, batch_first=True, pad_value=PAD,
+                          augment=False, device=None, dtype=torch.long):
+    """
+    seqs: a list of Tensors to be batched together
+    sub_seqs: a list of list of Tensors to be batched together
+    max_length: maximum sequence length permitted
+    max_tokens: maximum number of tokens in batch permitted
+
+    """
+    seqs, sub_seqs = zip(*seqs_subseqs)
+    batch_dim, time_dim = (0, 1) if batch_first else (1, 0)
+    if fixed_length is not None:
+        fixed_length = max_length = min(max_length, fixed_length)
+    lengths = _limit_lengths(seqs, max_length, max_tokens)
+
+    sub_seqs = [s[:length] for s, length in zip(sub_seqs, lengths)]
+    sub_lengths = [[sub.nelement() for sub in s] for s in sub_seqs]
+    batch_length = max(lengths) if fixed_length is None\
+        else fixed_length
+    batch_sub_length = max([max([s2.numel() for s2 in s1]) for s1 in sub_seqs])
+    sub_tensor_size = (len(seqs), batch_length, batch_sub_length) if batch_first \
+        else (batch_length, batch_sub_length, len(seqs))
+    sub_seq_tensor = torch.full(sub_tensor_size, pad_value,
+                                dtype=dtype, device=device)
+    tensor_size = (len(seqs), batch_length) if batch_first \
+        else (batch_length, len(seqs))
+    seq_tensor = torch.full(tensor_size, pad_value,
+                            dtype=dtype, device=device)
+    for i, seq in enumerate(seqs):
+        end_seq = lengths[i]
+        seq_tensor.narrow(time_dim, 0, lengths[i]).select(batch_dim, i)\
+            .copy_(seq[0:end_seq])
+        for j, sub_seq in enumerate(sub_seqs[i]):
+            end_sub_seq = sub_lengths[i][j]
+            sub_seq_tensor\
+                .narrow(time_dim+1, 0, end_sub_seq)\
+                .select(time_dim, j)\
+                .select(batch_dim, i)\
+                .copy_(sub_seq[0:end_sub_seq])
+
+    return (seq_tensor, lengths), (sub_seq_tensor, sub_lengths)

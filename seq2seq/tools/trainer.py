@@ -16,9 +16,10 @@ from .utils.meters import AverageMeter
 from .utils.cross_entropy import CrossEntropyLoss
 
 from .config import PAD
-from torch.nn.utils.rnn import PackedSequence
+from . import batch_nested_sequences
 
-__all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer', 'Img2SeqTrainer']
+__all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer',
+           'Img2SeqTrainer', 'NestedTrainer']
 
 
 class AddLossModule(nn.Module):
@@ -152,13 +153,8 @@ class Seq2SeqTrainer(object):
         batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
         num_words = sum(target_length) - target.size(batch_dim)
 
-        if isinstance(src, PackedSequence) or \
-                not isinstance(self.model_with_loss, DataParallel):
-            if isinstance(src, PackedSequence):
-                src = PackedSequence(src.data.to(self.device),
-                                     src.batch_sizes.to(self.device))
-            else:
-                src = src.to(self.device)
+        if not isinstance(self.model_with_loss, DataParallel):
+            src = src.to(self.device)
             target = target.to(self.device)
 
         if self.batch_first:
@@ -413,3 +409,91 @@ class Img2SeqTrainer(Seq2SeqTrainer):
     def iterate(self, src_img, target, training=True):
         src = (src_img, None)
         return super(Img2SeqTrainer, self).iterate(src, target, training)
+
+
+class NestedTrainer(Seq2SeqTrainer):
+    """class for Trainer.
+
+     regime is an ordered list by epochs
+     (can be a float indicating relative progress)"""
+
+    def __init__(self, *kargs, **kwargs):
+        super(NestedTrainer, self).__init__(*kargs, **kwargs)
+        self.model_with_loss = AddLossModule(self.model, self.criterion)
+        if self.distributed:
+            self.model_with_loss = DistributedDataParallel(
+                self.model_with_loss,
+                device_ids=[self.local_rank],
+                output_device=self.local_rank)
+        else:
+            if isinstance(self.device_ids, tuple):
+                self.model_with_loss = DataParallel(self.model_with_loss,
+                                                    self.device_ids,
+                                                    dim=0 if self.batch_first else 1)
+        _, target_tok = self.save_info['tokenizers'].values()
+        target_words = target_tok.common_words(8188)
+        self.contrast_batch = batch_nested_sequences(target_words)
+        import pdb
+        pdb.set_trace()
+
+    def iterate(self, src_tuple, target_tuple, training=True):
+        # limit number of tokens to avoid gpu overload
+        if self.limit_num_tokens is not None:
+            src_tuple, target_tuple = self._batch_limit_tokens(
+                src_tuple, target_tuple)
+        (src_word, src_word_length), (src_char, src_char_length) = src_tuple
+        (target_word, target_word_length), (target_char, target_char_length) \
+            = target_tuple
+        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
+        num_words = sum(target_word_length) - target.size(batch_dim)
+
+        src = src_char
+        target = target_word
+
+        if not isinstance(self.model_with_loss, DataParallel):
+            src = src.to(self.device)
+            target = target.to(self.device)
+
+        if self.batch_first:
+            inputs = (src, target[:, :-1])
+            target_labels = target[:, 1:].contiguous()
+        else:
+            inputs = (src, target[:-1])
+            target_labels = target[1:]
+
+        # compute output
+        loss, accuracy = self.model_with_loss(inputs, target_labels)
+
+        loss = loss.sum()
+        loss_measure = float(loss / num_words)
+        if self.avg_loss_time:
+            loss /= num_words
+        else:
+            loss /= target.size(batch_dim)
+        accuracy = float(accuracy.sum().float() / num_words)
+
+        if training:
+            # compute gradient and do SGD step
+            self.optimizer.zero_grad()
+            loss.backward()
+            if self.grad_clip is not None:
+                if isinstance(self.grad_clip, dict):
+                    clip_encoder = self.grad_clip.get('encoder', 0)
+                    clip_decoder = self.grad_clip.get('decoder', 0)
+                    if clip_encoder > 0:
+                        clip_grad_norm_(
+                            self.model.encoder.parameters(), clip_encoder)
+                    if clip_decoder > 0:
+                        clip_grad_norm_(
+                            self.model.decoder.parameters(), clip_decoder)
+                elif self.grad_clip > 0:  # grad_clip is a number
+                    clip_grad_norm_(self.model.parameters(), self.grad_clip)
+            if self.embedding_grad_clip is not None and self.embedding_grad_clip > 0:
+                if hasattr(self.model.encoder, 'embedder'):
+                    clip_grad_norm_(self.model.encoder.embedder.parameters(),
+                                    self.embedding_grad_clip)
+                if hasattr(self.model.decoder, 'embedder'):
+                    clip_grad_norm_(self.model.decoder.embedder.parameters(),
+                                    self.embedding_grad_clip)
+            self.optimizer.step()
+        return loss_measure, accuracy, num_words

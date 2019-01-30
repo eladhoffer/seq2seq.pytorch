@@ -15,6 +15,16 @@ def list_line_locations(filename):
     return line_offset
 
 
+def list_word_locations(filename):
+    word_offset = []
+    offset = 0
+    with open(filename, "rb") as f:
+        for line in f:
+            for i, _ in enumerate(line.split()):
+                word_offset.append((offset, i))
+            offset += len(line)
+    return word_offset
+
 class LinedTextDataset(Dataset):
     """ Dataset in which every line is a seperate item (e.g translation)
     """
@@ -60,9 +70,9 @@ class LinedTextDataset(Dataset):
     def get_loader(self, sort=False, pack=False,
                    batch_size=1, shuffle=False, sampler=None, num_workers=0,
                    max_length=None, batch_first=False, pin_memory=False, drop_last=False):
-        collate_fn = lambda seqs: batch_sequences(seqs, max_length=max_length,
-                                                  batch_first=batch_first,
-                                                  sort=sort, pack=pack)
+        def collate_fn(seqs): return batch_sequences(seqs, max_length=max_length,
+                                                     batch_first=batch_first,
+                                                     sort=sort, pack=pack)
         return torch.utils.data.DataLoader(self,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,
@@ -72,6 +82,29 @@ class LinedTextDataset(Dataset):
                                            pin_memory=pin_memory,
                                            drop_last=drop_last)
 
+
+class WordedTextDataset(LinedTextDataset):
+    """ Dataset in which every line is a seperate item (e.g translation)
+    """
+
+    def __init__(self, filename, transform=None):
+        self.filename = filename
+        self.load_mem = False
+        self.transform = transform
+
+        self.items = list_word_locations(filename)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[idx] for idx in range(index.start or 0, index.stop or len(self), index.step or 1)]
+
+        with codecs.open(self.filename, encoding='UTF-8') as f:
+            f.seek(self.items[index][0])
+            item = f.readline()
+            item = list(item.split())[self.items[index][1]]
+        if self.transform is not None:
+            item = self.transform(item)
+        return item
 
 class TextFileDataset(Dataset):
     """ Dataset in which data is a continuous chunk of text
@@ -106,9 +139,9 @@ class TextFileDataset(Dataset):
     def get_loader(self, sort=False, pack=False,
                    batch_size=1, shuffle=False, sampler=None, num_workers=0,
                    max_length=None, batch_first=False, pin_memory=False, drop_last=False):
-        collate_fn = lambda seqs: batch_sequences(seqs, max_length=max_length,
-                                                  batch_first=batch_first,
-                                                  sort=sort, pack=pack)
+        def collate_fn(seqs): return batch_sequences(seqs, max_length=max_length,
+                                                     batch_first=batch_first,
+                                                     sort=sort, pack=pack)
         return torch.utils.data.DataLoader(self,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,

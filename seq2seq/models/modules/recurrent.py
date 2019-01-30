@@ -86,6 +86,8 @@ def Recurrent(mode, input_size, hidden_size,
                                          weight_norm=weight_norm,
                                          residual=True)
             params['num_layers'] = 1
+        if params.get('num_layers', 0) == 1:
+            params.pop('dropout', None)
         module = wn_func(rnn(**params))
 
     if mode == 'LSTM' and forget_bias is not None:
@@ -252,27 +254,6 @@ class ZoneOutCell(nn.Module):
         next_hidden = self.cell(inputs, hidden)
         next_hidden = zoneout(hidden, next_hidden, self.zoneout_prob)
         return next_hidden
-
-
-# class DropoutHiddenCell(nn.Module):
-#
-#     def __init__(self, cell, dropout_hidden=0, dropout_all_states=True):
-#         super(DropoutHiddenCell, self).__init__()
-#         self.cell = cell
-#         self.hidden_size = cell.hidden_size
-#         self.dropout_all_states = dropout_all_states
-#         self.dropout_hidden = nn.Dropout(dropout_hidden)
-#
-#     def forward(self, inputs, hidden):
-#         next_hidden = self.cell(inputs, hidden)
-#         if isinstance(h, tuple):
-#             if self.dropout_all_states:
-#                 next_hidden = tuple([self.dropout_hidden(h_i) for h_i in h])
-#             else:
-#
-#         else:
-#             next_hidden = self.dropout_hidden(h)
-#         return next_hidden
 
 
 def wrap_time_cell(cell_func, batch_first=False, lstm=True, with_attention=False, reverse=False):

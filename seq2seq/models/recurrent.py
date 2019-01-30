@@ -123,10 +123,10 @@ class RecurrentEncoder(nn.Module):
 
     def forward(self, inputs, hidden=None):
         if isinstance(inputs, PackedSequence):
-            bsizes = inputs.batch_sizes
-            max_batch = int(bsizes[0])
             emb = PackedSequence(self.embedding_dropout(
-                self.embedder(inputs.data)), bsizes)
+                self.embedder(inputs.data)), inputs.batch_sizes)
+            bsizes = inputs.batch_sizes.to(device=inputs.data.device)
+            max_batch = int(bsizes[0])
             # Get padding mask
             time_dim = 1 if self.batch_first else 0
             range_batch = torch.arange(0, max_batch,
@@ -139,6 +139,7 @@ class RecurrentEncoder(nn.Module):
             padding_mask = inputs.eq(PAD)
             emb = self.embedding_dropout(self.embedder(inputs))
         outputs, hidden_t = self.rnn(emb, hidden)
+
         if isinstance(inputs, PackedSequence):
             outputs = unpack(outputs)[0]
         outputs = self.dropout(outputs)

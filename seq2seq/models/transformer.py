@@ -1,23 +1,24 @@
 import torch
 import torch.nn as nn
+from copy import deepcopy
 from .seq2seq_base import Seq2Seq
 from seq2seq.tools.config import PAD
 from .modules.state import State
-from .modules.transformer_blocks import EncoderBlock, DecoderBlock, positional_embedding
+from .modules.transformer_blocks import EncoderBlock, DecoderBlock, positional_embedding, CharWordEmbedder
 
 
 class TransformerAttentionEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
                  num_layers=6, num_heads=8, inner_linear=2048, inner_groups=1,
-                 mask_symbol=PAD, layer_norm=True, weight_norm=False, dropout=0):
+                 mask_symbol=PAD, layer_norm=True, weight_norm=False, dropout=0, embedder=None):
 
         super(TransformerAttentionEncoder, self).__init__()
         embedding_size = embedding_size or hidden_size
         self.hidden_size = hidden_size
         self.batch_first = True
         self.mask_symbol = mask_symbol
-        self.embedder = nn.Embedding(
+        self.embedder = embedder or nn.Embedding(
             vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout, inplace=True)
@@ -50,13 +51,13 @@ class TransformerAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
                  num_layers=6, num_heads=8, dropout=0, inner_linear=2048, inner_groups=1, stateful=False,
-                 mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False):
+                 mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False, embedder=None, classifier=True):
 
         super(TransformerAttentionDecoder, self).__init__()
         embedding_size = embedding_size or hidden_size
         self.batch_first = True
         self.mask_symbol = mask_symbol
-        self.embedder = nn.Embedding(
+        self.embedder = embedder or nn.Embedding(
             vocab_size, embedding_size, padding_idx=PAD)
         self.scale_embedding = hidden_size ** 0.5
         self.dropout = nn.Dropout(dropout, inplace=True)
@@ -71,9 +72,10 @@ class TransformerAttentionDecoder(nn.Module):
                                                   stateful=stateful)
                                      for _ in range(num_layers)
                                      ])
-        self.classifier = nn.Linear(hidden_size, vocab_size)
-        if tie_embedding:
-            self.embedder.weight = self.classifier.weight
+        if classifier:
+            self.classifier = nn.Linear(hidden_size, vocab_size)
+            if tie_embedding:
+                self.embedder.weight = self.classifier.weight
 
     def forward(self, inputs, state, get_attention=False):
         context = state.context
@@ -108,7 +110,8 @@ class TransformerAttentionDecoder(nn.Module):
                 attention_scores.append(attn_enc)
             else:
                 del attn_enc
-        x = self.classifier(x)
+        if self.classifier is not None:
+            x = self.classifier(x)
         if self.stateful:
             state.hidden = tuple(updated_state)
             self.time_step += 1
@@ -129,6 +132,8 @@ class Transformer(Seq2Seq):
         # keeping encoder, decoder None will result with default configuration
         encoder = encoder or {}
         decoder = decoder or {}
+        encoder = deepcopy(encoder)
+        decoder = deepcopy(decoder)
         encoder.setdefault('embedding_size', embedding_size)
         encoder.setdefault('hidden_size', hidden_size)
         encoder.setdefault('num_layers', num_layers)
@@ -153,9 +158,15 @@ class Transformer(Seq2Seq):
         decoder.setdefault('inner_groups', inner_groups)
         decoder.setdefault('stateful', stateful)
 
+        if isinstance(vocab_size, tuple):
+            embedder = CharWordEmbedder(vocab_size[1], embedding_size, hidden_size)
+            encoder.setdefault('embedder', embedder)
+            decoder.setdefault('embedder', embedder)
+            decoder['classifier'] = False
+
         self.batch_first = True
         self.encoder = TransformerAttentionEncoder(**encoder)
         self.decoder = TransformerAttentionDecoder(**decoder)
 
-        if tie_embedding:
+        if tie_embedding and not isinstance(vocab_size, tuple):
             self.encoder.embedder.weight = self.decoder.classifier.weight

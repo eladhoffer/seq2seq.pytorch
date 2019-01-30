@@ -5,9 +5,9 @@ from copy import copy, deepcopy
 import torch
 from collections import OrderedDict
 from .text import LinedTextDataset
-from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer, SentencePiece
+from seq2seq.tools.tokenizer import Tokenizer, BPETokenizer, CharTokenizer, SentencePiece, WordCharTokenizer
 from seq2seq.tools.config import *
-from seq2seq.tools import batch_sequences
+from seq2seq.tools import batch_sequences, batch_nested_sequences
 
 
 def create_padded_batch(max_length=100, max_tokens=None, fixed_length=None,
@@ -29,6 +29,19 @@ def create_padded_batch(max_length=100, max_tokens=None, fixed_length=None,
     return collate
 
 
+def create_nested_padded_batch(max_length=100, max_tokens=None, fixed_length=None,
+                               batch_first=True, sort=False,
+                               pack=False, augment=False):
+    assert batch_first and not any([sort, pack, augment])
+
+    def collate(seqs, first=True):
+        return tuple([batch_nested_sequences(lng, max_length=max_length,
+                                             max_tokens=max_tokens,
+                                             fixed_length=fixed_length,
+                                             batch_first=batch_first) for lng in zip(*seqs)])
+    return collate
+
+
 class MultiLanguageDataset(object):
     """docstring for Dataset."""
     __tokenizers = {
@@ -36,6 +49,7 @@ class MultiLanguageDataset(object):
         'char': CharTokenizer,
         'bpe': BPETokenizer,
         'sentencepiece': SentencePiece,
+        'word+char': WordCharTokenizer,
     }
 
     def __init__(self, prefix,
@@ -72,7 +86,7 @@ class MultiLanguageDataset(object):
             prefix += '.moses'
 
         if self.tokenizers is None:
-            if tokenization not in ['sentencepiece', 'bpe', 'char', 'word']:
+            if tokenization not in ['sentencepiece', 'bpe', 'char', 'word', 'word+char']:
                 raise ValueError("An invalid option for tokenization was used, options are {0}".format(
                     ','.join(['sentencepiece', 'bpe', 'char', 'word'])))
 
@@ -129,6 +143,22 @@ class MultiLanguageDataset(object):
                                      additional_tokens=additional_tokens)
                 if getattr(tokz, 'model', None) is None:
                     tokz.learn_model(files)
+            elif self.tokenization == 'word+char':
+                word_vocab_file = self.vocab_files[l] + '.word'
+                char_vocab_file = self.vocab_files[l] + '.char'
+                tokz = WordCharTokenizer(
+                    word_vocab_file=word_vocab_file,
+                    char_vocab_file=char_vocab_file,
+                    word_additional_tokens=additional_tokens,
+                    char_additional_tokens=additional_tokens)
+
+                if not hasattr(tokz.word_tokenizer, 'vocab'):
+                    logging.info('generating vocabulary. saving to %s' %
+                                 self.vocab_files[l])
+                    tokz.get_vocab(files)
+                    tokz.save_vocab(word_vocab_file, char_vocab_file)
+                tokz.load_vocab(word_vocab_file, char_vocab_file,
+                                limit=self.vocab_limit)
             else:
                 if self.tokenization == 'bpe':
                     tokz = BPETokenizer(self.code_files[l],
@@ -138,7 +168,6 @@ class MultiLanguageDataset(object):
                                         use_moses=l if self.use_moses else None)
                     if not hasattr(tokz, 'bpe'):
                         tokz.learn_bpe(files)
-
                 else:
                     tokz = self.__tokenizers[self.tokenization](
                         vocab_file=self.vocab_files[l],
@@ -147,7 +176,7 @@ class MultiLanguageDataset(object):
 
                 if not hasattr(tokz, 'vocab'):
                     logging.info('generating vocabulary. saving to %s' %
-                                self.vocab_files[l])
+                                 self.vocab_files[l])
                     tokz.get_vocab(files)
                     tokz.save_vocab(self.vocab_files[l])
                 tokz.load_vocab(self.vocab_files[l], limit=self.vocab_limit)
@@ -195,9 +224,14 @@ class MultiLanguageDataset(object):
                    augment=False, languages=None, sampler=None, num_workers=0,
                    max_length=100, max_tokens=None, fixed_length=None, batch_first=False,
                    pin_memory=False, drop_last=False):
-        collate_fn = create_padded_batch(
-            max_length=max_length, max_tokens=max_tokens, batch_first=batch_first,
-            fixed_length=fixed_length, sort=sort, pack=pack, augment=augment)
+        if self.tokenization == 'word+char':
+            collate_fn = create_nested_padded_batch(
+                max_length=max_length, max_tokens=max_tokens, batch_first=batch_first,
+                fixed_length=fixed_length, sort=sort, pack=pack, augment=augment)
+        else:
+            collate_fn = create_padded_batch(
+                max_length=max_length, max_tokens=max_tokens, batch_first=batch_first,
+                fixed_length=fixed_length, sort=sort, pack=pack, augment=augment)
         return torch.utils.data.DataLoader(self,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,

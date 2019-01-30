@@ -131,7 +131,7 @@ class DecoderBlock(nn.Module):
         if stateful is not None:
             residual = False
             if stateful.endswith('_res'):
-                stateful = stateful.replace('_res','')
+                stateful = stateful.replace('_res', '')
                 residual = True
             if stateful in ['RNN', 'iRNN', 'LSTM', 'GRU']:
                 self.state_block = Recurrent(stateful, hidden_size, hidden_size,
@@ -179,3 +179,27 @@ class DecoderBlock(nn.Module):
         x = self.lnorm3(x) if hasattr(self, 'lnorm3') else x
 
         return x, attn_enc, state
+
+
+class CharWordEmbedder(nn.Module):
+    def __init__(self, num_chars, embedding_size, output_size, num_heads=8, padding_idx=0):
+        super(CharWordEmbedder, self).__init__()
+        self.num_chars = num_chars
+        self.char_embedding = nn.Embedding(
+            num_chars, embedding_size, padding_idx=padding_idx)
+        self.attn = MultiHeadAttention(embedding_size, output_size, num_heads)
+        self.padding_idx = padding_idx
+
+    def forward(self, x):
+        """ input is of size BxTwxTc --> BxTw
+        """
+        B, Tw, Tc = x.shape
+        x = x.flatten(0, 1)  # (BTw)xTc
+        x = self.char_embedding(x)  # (BTw)xTcxN
+        mask = x.eq(self.padding_idx)
+        self.attn.set_mask_k(mask)
+        self.attn.set_mask_q(mask)
+        x = self.attn(x)  # (BTw)xTcxM
+        x = x.sum(1)
+        x = x.view(B, Tw, x.size(-1))
+        return x
