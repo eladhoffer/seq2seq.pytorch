@@ -104,17 +104,7 @@ parser.add_argument('--seed', default=123, type=int,
 def main(args):
     set_global_seeds(args.seed)
     time_stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    if args.evaluate:
-        args.results_dir = '/tmp'
-    if args.save is '':
-        args.save = time_stamp
-    save_path = os.path.join(args.results_dir, args.save)
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-
     args.distributed = args.local_rank >= 0 or args.world_size > 1
-    setup_logging(os.path.join(save_path, 'log.txt'),
-                  dummy=args.distributed and torch.distributed.get_rank() > 0)
 
     if args.distributed:
         args.device_ids = args.local_rank
@@ -122,6 +112,19 @@ def main(args):
                                 world_size=args.world_size, rank=args.local_rank)
     else:
         args.device_ids = literal_eval(args.device_ids)
+    main_node = not (args.distributed and torch.distributed.get_rank() > 0)
+
+    if args.evaluate:
+        args.results_dir = '/tmp'
+    if args.save is '':
+        args.save = time_stamp
+    save_path = os.path.join(args.results_dir, args.save)
+
+    if main_node and not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    setup_logging(os.path.join(save_path, 'log.txt'),
+                  dummy=not main_node)
 
     logging.info("saving to %s", save_path)
     logging.debug("run arguments: %s", args)
