@@ -10,10 +10,14 @@ from collections import Counter, OrderedDict
 import torch
 from .config import *
 
-sys.path.append(os.path.abspath(os.path.join(
-    os.path.dirname(__file__), './subword-nmt')))
-import learn_bpe
-import apply_bpe
+try:
+    sys.path.append(os.path.abspath(os.path.join(
+        os.path.dirname(__file__), './subword-nmt')))
+    import learn_bpe
+    import apply_bpe
+    _BPE_AVAILABLE = True
+else:
+    _BPE_AVAILABLE = False
 
 try:
     from sacremoses import MosesTokenizer, MosesDetokenizer
