@@ -62,17 +62,17 @@ LR0="512**(-0.5)"
 python main.py \
   --save transformer \
   --dataset ${DATASET} \
-  --dataset_dir ${DATASET_DIR} \
-  --results_dir ${OUTPUT_DIR} \
+  --dataset-dir ${DATASET_DIR} \
+  --results-dir ${OUTPUT_DIR} \
   --model Transformer \
-  --model_config "{'num_layers': 6, 'hidden_size': 512, 'num_heads': 8, 'inner_linear': 2048}" \
-  --data_config "{'moses_pretok': True, 'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
+  --model-config "{'num_layers': 6, 'hidden_size': 512, 'num_heads': 8, 'inner_linear': 2048}" \
+  --data-config "{'moses_pretok': True, 'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
   --b 128 \
-  --max_length 100 \
-  --device_ids 0 \
+  --max-length 100 \
+  --device-ids 0 \
   --label_smoothing 0.1 \
   --trainer Seq2SeqTrainer \
-  --optimization_config "[{'step_lambda':
+  --optimization-config "[{'step_lambda':
                           \"lambda t: { \
                               'optimizer': 'Adam', \
                               'lr': ${LR0} * min(t ** -0.5, t * ${WARMUP} ** -1.5), \
@@ -85,20 +85,20 @@ python main.py \
 python main.py \
   --save de_en_wmt17 \
   --dataset ${DATASET} \
-  --dataset_dir ${DATASET_DIR} \
-  --results_dir ${OUTPUT_DIR} \
+  --dataset-dir ${DATASET_DIR} \
+  --results-dir ${OUTPUT_DIR} \
   --model RecurrentAttentionSeq2Seq \
-  --model_config "{'hidden_size': 512, 'dropout': 0.2, \
+  --model-config "{'hidden_size': 512, 'dropout': 0.2, \
                    'tie_embedding': True, 'transfer_hidden': False, \
                    'encoder': {'num_layers': 3, 'bidirectional': True, 'num_bidirectional': 1, 'context_transform': 512}, \
                    'decoder': {'num_layers': 3, 'concat_attention': True,\
                                'attention': {'mode': 'dot_prod', 'dropout': 0, 'output_transform': True, 'output_nonlinearity': 'relu'}}}" \
   --data_config "{'moses_pretok': True, 'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
   --b 128 \
-  --max_length 80 \
-  --device_ids 0 \
+  --max-length 80 \
+  --device-ids 0 \
   --trainer Seq2SeqTrainer \
-  --optimization_config "[{'epoch': 0, 'optimizer': 'Adam', 'lr': 1e-3},
+  --optimization-config "[{'epoch': 0, 'optimizer': 'Adam', 'lr': 1e-3},
                           {'epoch': 6, 'lr': 5e-4},
                           {'epoch': 8, 'lr':1e-4},
                           {'epoch': 10, 'lr': 5e-5},
