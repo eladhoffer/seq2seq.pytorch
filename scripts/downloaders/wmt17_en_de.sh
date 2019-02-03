@@ -128,7 +128,7 @@ done
 for f in ${OUTPUT_DIR}/*.en; do
   fbase=${f%.*}
   echo "Cleaning ${fbase}..."
-  ${OUTPUT_DIR}/mosesdecoder/scripts/training/clean-corpus-n.perl $fbase de en "${fbase}.clean" 1 250
+  ${OUTPUT_DIR}/mosesdecoder/scripts/training/clean-corpus-n.perl -ratio 1.5 $fbase de en "${fbase}.clean" 1 250
 done
 
 
