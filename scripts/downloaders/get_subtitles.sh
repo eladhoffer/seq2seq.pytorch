@@ -29,7 +29,7 @@ fi
 
 # Clean all corpora
 echo "Cleaning ${OSUB_PREFIX}..."
-${OUTPUT_DIR}/mosesdecoder/scripts/training/clean-corpus-n.perl ${OSUB_PREFIX} ${lang1} ${lang2} "${OSUB_PREFIX}.clean" 1 "${MAX_LENGTH}"
+${OUTPUT_DIR}/mosesdecoder/scripts/training/clean-corpus-n.perl -ratio 1.5 ${OSUB_PREFIX} ${lang1} ${lang2} "${OSUB_PREFIX}.clean" 1 "${MAX_LENGTH}"
 
 rm "${OSUB_PREFIX}.${lang1}";
 
