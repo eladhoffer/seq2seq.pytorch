@@ -16,7 +16,7 @@ try:
     import learn_bpe
     import apply_bpe
     _BPE_AVAILABLE = True
-else:
+except:
     _BPE_AVAILABLE = False
 
 try:
