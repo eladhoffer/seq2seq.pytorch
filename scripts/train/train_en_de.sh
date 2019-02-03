@@ -17,7 +17,6 @@ python -m torch.distributed.launch --nproc_per_node=${NUM_GPUS} main.py \
   --data-config "{'moses_pretok': True, 'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
   --b 32 \
   --max-length 50 \
-  --device-ids 0,1,2,3 \
   --trainer Seq2SeqTrainer \
   --optimization-config "[{'epoch': 0, 'optimizer': 'Adam', 'lr': 1e-3},
                           {'epoch': 6, 'lr': 5e-4},

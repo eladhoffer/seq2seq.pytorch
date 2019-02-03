@@ -158,7 +158,7 @@ class SDPAttention(nn.Module):
         assert(t_k == t_v)  # times should be equal
         b = b_q
         qk = torch.bmm(q, k.transpose(1, 2))  # b x t_q x t_k
-        qk.div_(dim_k ** 0.5)
+        qk = qk / (dim_k ** 0.5)
         mask = None
         with torch.no_grad():
             if self.causal and t_q > 1:
@@ -170,8 +170,8 @@ class SDPAttention(nn.Module):
             if self.mask_q is not None:
                 mask_q = self.mask_q.unsqueeze(2).expand(b, t_q, t_k)
                 mask = mask_q if mask is None else mask | mask_q
-            if mask is not None:
-                qk.masked_fill_(mask, -1e9)
+        if mask is not None:
+            qk.masked_fill_(mask, -1e9)
 
         sm_qk = F.softmax(qk, dim=2)
         sm_qk = self.dropout(sm_qk)
