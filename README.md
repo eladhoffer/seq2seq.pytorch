@@ -70,7 +70,7 @@ python main.py \
   --b 128 \
   --max-length 100 \
   --device-ids 0 \
-  --label_smoothing 0.1 \
+  --label-smoothing 0.1 \
   --trainer Seq2SeqTrainer \
   --optimization-config "[{'step_lambda':
                           \"lambda t: { \
@@ -93,7 +93,7 @@ python main.py \
                    'encoder': {'num_layers': 3, 'bidirectional': True, 'num_bidirectional': 1, 'context_transform': 512}, \
                    'decoder': {'num_layers': 3, 'concat_attention': True,\
                                'attention': {'mode': 'dot_prod', 'dropout': 0, 'output_transform': True, 'output_nonlinearity': 'relu'}}}" \
-  --data_config "{'moses_pretok': True, 'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
+  --data-config "{'moses_pretok': True, 'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
   --b 128 \
   --max-length 80 \
   --device-ids 0 \
