@@ -81,13 +81,13 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
                     help='evaluate model FILE on validation set')
-parser.add_argument('--grad_clip', default='5.', type=str,
+parser.add_argument('--grad-clip', default='5.', type=str,
                     help='maximum grad norm value')
-parser.add_argument('--embedding_grad_clip', default=None, type=float,
+parser.add_argument('--embedding-grad-clip', default=None, type=float,
                     help='maximum embedding grad norm value')
 parser.add_argument('--label-smoothing', default=0, type=float,
                     help='label smoothing coefficient - default 0')
-parser.add_argument('--uniform_init', default=None, type=float,
+parser.add_argument('--uniform-init', default=None, type=float,
                     help='if value not None - init weights to U(-value,value)')
 parser.add_argument('--max-length', default=100, type=int,
                     help='maximum sequence length')
