@@ -11,10 +11,7 @@ import torch
 from .config import *
 
 try:
-    sys.path.append(os.path.abspath(os.path.join(
-        os.path.dirname(__file__), './subword-nmt')))
-    import learn_bpe
-    import apply_bpe
+    from subword_nmt import learn_bpe, apply_bpe
     _BPE_AVAILABLE = True
 except:
     _BPE_AVAILABLE = False

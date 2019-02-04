@@ -5,3 +5,4 @@ pandas
 sacrebleu
 sacremoses
 sentencepiece
+subword-nmt
