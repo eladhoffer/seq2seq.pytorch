@@ -148,9 +148,9 @@ class DecoderBlock(nn.Module):
                                 nn.Dropout(dropout),
                                 wn_func(Linear(inner_linear, hidden_size, groups=inner_groups)))
 
-    def set_mask(self, mask, context_mask=None):
-        if context_mask is not None:
-            self.attention.set_mask_k(context_mask)
+    def set_mask(self, mask, context_mask):
+        self.attention.set_mask_q(mask)
+        self.attention.set_mask_k(context_mask)
         if hasattr(self, 'masked_attention'):
             self.masked_attention.set_mask_q(mask)
             self.masked_attention.set_mask_k(mask)
