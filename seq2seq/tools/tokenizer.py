@@ -112,10 +112,11 @@ class Tokenizer(object):
             return self._moses_tok.tokenize(line, return_str=True)
         return line
 
-    def post_detokenize(self, tokens):
+    def post_detokenize(self, line):
         if hasattr(self, '_moses_detok'):
-            return self._moses_detok.detokenize(tokens, return_str=False)
-        return tokens
+            tokens = _segment_words(line)
+            return self._moses_detok.detokenize(tokens, return_str=True)
+        return line
 
     def idx2word(self, idx):
         if idx < len(self.special_tokens):
@@ -177,8 +178,8 @@ class Tokenizer(object):
 
     def detokenize(self, inputs, delimiter=u' '):
         token_list = [self.idx2word(int(idx)) for idx in inputs]
-        token_list = self.post_detokenize(token_list)
         outputs = delimiter.join(token_list)
+        outputs = self.post_detokenize(outputs)
         return outputs
 
 
@@ -227,8 +228,8 @@ class BPETokenizer(Tokenizer):
         self.set_bpe(self.codes_file)
 
     def detokenize(self, inputs, delimiter=' '):
-        self.separator = getattr(self, 'separator', '@@')
-        detok_string = super(BPETokenizer, self).detokenize(inputs, delimiter)
+        token_list = [self.idx2word(int(idx)) for idx in inputs]
+        detok_string = delimiter.join(token_list)
         try:
             detok_string = detok_string.decode('utf-8')
         except:
@@ -236,6 +237,7 @@ class BPETokenizer(Tokenizer):
         detok_string = detok_string\
             .replace(self.separator + ' ', '')\
             .replace(self.separator, '')
+        detok_string = self.post_detokenize(detok_string)
         return detok_string
 
 
@@ -299,6 +301,7 @@ class SentencePiece(Tokenizer):
 
     def tokenize(self, line, insert_start=None, insert_end=None, sample=None):
         """tokenize a line, insert_start and insert_end are lists of tokens"""
+        line = self.pre_tokenize(line)
         if sample is None or sample is False:
             targets = self.model.EncodeAsIds(line)
         else:
@@ -314,6 +317,7 @@ class SentencePiece(Tokenizer):
 
     def detokenize(self, inputs):
         outputs = self.model.DecodeIds([int(idx) for idx in inputs])
+        outputs = self.post_detokenize(outputs)
         return outputs
 
     def idx2word(self, idx):
@@ -324,6 +328,7 @@ class SentencePiece(Tokenizer):
 
     def segment(self, line, sample=None):
         """segments a line to tokenizable items"""
+        line = self.pre_tokenize(line)
         if sample is None or sample is False:
             return self.model.EncodeAsPieces(line)
         else:
@@ -381,7 +386,8 @@ class WordCharTokenizer(Tokenizer):
     def common_words(self, num=None, sample=None):
         special = [torch.LongTensor([self.char_tokenizer.word2idx(t)])
                    for t in self.char_tokenizer.special_tokens]
-        words = [w for w, _ in self.word_tokenizer.vocab[:num]]# self.words_freq_list.most_common(num)]
+        # self.words_freq_list.most_common(num)]
+        words = [w for w, _ in self.word_tokenizer.vocab[:num]]
 
         return special + [self.char_tokenizer.tokenize(word) for word in words]
 
