@@ -2,10 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import torch
-import torch.nn as nn
-
-
 def _sum_tensor_scalar(tensor, scalar, expand_size):
     if scalar is not None:
         scalar = scalar.expand(expand_size).contiguous()
