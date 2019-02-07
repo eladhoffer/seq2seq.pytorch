@@ -9,6 +9,16 @@ import seq2seq
 from seq2seq.tools.inference import Translator, average_models
 from copy import deepcopy
 
+
+def _parse_bool(x):
+    if str(x).lower() == 'true':
+        return True
+    elif str(x).lower() == 'false':
+        return False
+    else:
+        return None
+
+
 parser = argparse.ArgumentParser(
     description='Translate a file using pretrained model')
 
@@ -36,7 +46,7 @@ parser.add_argument('--dtype', default='torch.float',
                     help='type of tensor - e.g torch.cuda.HalfTensor')
 parser.add_argument('--verbose', action='store_true',
                     help='print translations on screen')
-parser.add_argument('--use-moses', type=bool, default=None,
+parser.add_argument('--use-moses',  default=None, type=_parse_bool,
                     help='enable moses tokenize/detokenize (to evaluate bleu)')
 
 if __name__ == '__main__':
