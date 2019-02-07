@@ -47,6 +47,46 @@ class AddLossModule(nn.Module):
             return loss
 
 
+def _chunk_tuple(seq_tuple, num_chunks, batch_first=True):
+    if num_chunks == 1:
+        return [seq_tuple]
+    seq, length = seq_tuple
+    batch_dim = 0 if batch_first else 1
+    chunked_length = [l.tolist()
+                      for l in torch.tensor(length).chunk(num_chunks)]
+    return zip(seq.chunk(num_chunks, dim=batch_dim), chunked_length)
+
+
+def _batch_max_tokens(src_tuple, target_tuple, max_tokens, batch_first=True, log=True):
+    src, src_length = src_tuple
+    target, target_length = target_tuple
+    num_tokens = src.size(0) * src.size(1) + \
+        target.size(0) * target.size(1)
+    if num_tokens > max_tokens:
+        batch_dim, time_dim = (0, 1) if batch_first else (1, 0)
+        batch_size = src.size(batch_dim)
+        src_max_length = np.maximum.accumulate(src_length)
+        target_max_length = np.maximum.accumulate(target_length)
+        sum_max_length = src_max_length + target_max_length
+        num_tokens_batch = sum_max_length * \
+            (np.arange(src.size(batch_dim)) + 1)
+        B = int((num_tokens_batch > max_tokens).argmax() - 1)
+        if B < 0:
+            B = batch_size
+        Tsrc = int(src_max_length[B - 1])
+        Ttarget = int(target_max_length[B - 1])
+        src = src.narrow(batch_dim, 0, B).narrow(time_dim, 0, Tsrc)
+        src_tuple = (src, src_length[:B])
+
+        target = target.narrow(batch_dim, 0, B).narrow(time_dim, 0, Ttarget)
+        target_tuple = (target, target_length[:B])
+        if log and B < batch_size:
+            logging.debug(
+                'Trimmed batch to %s as number of tokens was > %s, T = (%s, %s)' %
+                (B, max_tokens, Tsrc, Ttarget))
+    return src_tuple, target_tuple
+
+
 class Seq2SeqTrainer(object):
     """class for Trainer.
 
@@ -61,7 +101,8 @@ class Seq2SeqTrainer(object):
                  save_freq=1000,
                  grad_clip=None,
                  embedding_grad_clip=None,
-                 limit_num_tokens=None,
+                 max_tokens=None,
+                 chunk_batch=1,
                  save_info={},
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth',
@@ -85,7 +126,8 @@ class Seq2SeqTrainer(object):
         self.save_info = save_info
         self.device = device
         self.dtype = dtype
-        self.limit_num_tokens = limit_num_tokens
+        self.max_tokens = max_tokens
+        self.chunk_batch = chunk_batch
         self.print_freq = print_freq
         self.eval_freq = eval_freq
         self.perplexity = float('inf')
@@ -116,69 +158,58 @@ class Seq2SeqTrainer(object):
     def batch_first(self):
         return getattr(self.model.decoder, 'batch_first', False)
 
-    def _batch_limit_tokens(self, src, target, limit_num=None):
-        limit_num = limit_num or self.limit_num_tokens
-        src, src_length = src
-        target, target_length = target
-        num_tokens = src.size(0) * src.size(1) + \
-            target.size(0) * target.size(1)
-        if num_tokens <= limit_num:
-            return (src, src_length), (target, target_length)
-        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
-        src_max_length = np.maximum.accumulate(src_length)
-        target_max_length = np.maximum.accumulate(target_length)
-        sum_max_length = src_max_length + target_max_length
-        num_tokens_batch = sum_max_length * \
-            (np.arange(src.size(batch_dim)) + 1)
-        B = int((num_tokens_batch > limit_num).argmax() - 1)
-        Tsrc = int(src_max_length[B - 1])
-        Ttarget = int(target_max_length[B - 1])
+    def iterate(self, src_tuple_batch, target_tuple_batch, training=True, chunk_batch=1):
+        loss_measure = 0
+        accuracy_measure = 0
+        num_words = 0
+        if training:
+            self.optimizer.zero_grad()
 
-        src = (src.narrow(batch_dim, 0, B).narrow(time_dim, 0, Tsrc),
-               src_length[:B])
-        target = (target.narrow(batch_dim, 0, B).narrow(time_dim, 0, Ttarget),
-                  target_length[:B])
-        logging.debug(
-            'Trimmed batch to %s as number of tokens was > %s, T = (%s, %s)' %
-            (B, limit_num, Tsrc, Ttarget))
-        return src, target
+        repacked_inputs = []
+        for src_tuple, target_tuple in zip(_chunk_tuple(src_tuple_batch, chunk_batch, self.batch_first),
+                                           _chunk_tuple(target_tuple_batch, chunk_batch, self.batch_first)):
+            # limit number of tokens to avoid gpu overload
+            if training and self.max_tokens is not None:
+                src_tuple, target_tuple = _batch_max_tokens(
+                    src_tuple, target_tuple, self.max_tokens,
+                    batch_first=self.batch_first)
+            src, _ = src_tuple
+            target, target_length = target_tuple
+            batch_dim = 0 if self.batch_first else 1
+            num_words += sum(target_length) - target.size(batch_dim)
+            repacked_inputs.append((src, target))
 
-    def iterate(self, src_tuple, target_tuple, training=True):
-        # limit number of tokens to avoid gpu overload
-        if self.limit_num_tokens is not None:
-            src_tuple, target_tuple = self._batch_limit_tokens(
-                src_tuple, target_tuple)
-        src, src_length = src_tuple
-        target, target_length = target_tuple
-        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
-        num_words = sum(target_length) - target.size(batch_dim)
+        for src, target in repacked_inputs:
+            if not isinstance(self.model_with_loss, DataParallel):
+                src = src.to(self.device)
+                target = target.to(self.device)
 
-        if not isinstance(self.model_with_loss, DataParallel):
-            src = src.to(self.device)
-            target = target.to(self.device)
+            if self.batch_first:
+                inputs = (src, target[:, :-1])
+                target_labels = target[:, 1:].contiguous()
+            else:
+                inputs = (src, target[:-1])
+                target_labels = target[1:]
 
-        if self.batch_first:
-            inputs = (src, target[:, :-1])
-            target_labels = target[:, 1:].contiguous()
-        else:
-            inputs = (src, target[:-1])
-            target_labels = target[1:]
+            if training:
+                self.optimizer.pre_forward()
+            # compute output
+            loss, accuracy = self.model_with_loss(inputs, target_labels)
 
-        # compute output
-        loss, accuracy = self.model_with_loss(inputs, target_labels)
+            loss = loss.sum()
+            loss_measure += float(loss / num_words)
+            if self.avg_loss_time:
+                loss /= num_words
+            else:
+                loss /= target.size(batch_dim)
+            accuracy_measure += float(accuracy.sum().float() / num_words)
 
-        loss = loss.sum()
-        loss_measure = float(loss / num_words)
-        if self.avg_loss_time:
-            loss /= num_words
-        else:
-            loss /= target.size(batch_dim)
-        accuracy = float(accuracy.sum().float() / num_words)
+            if training:
+                self.optimizer.pre_backward()
+                # compute gradient and do SGD step
+                loss.backward()
 
         if training:
-            # compute gradient and do SGD step
-            self.optimizer.zero_grad()
-            loss.backward()
             if self.grad_clip is not None:
                 if isinstance(self.grad_clip, dict):
                     clip_encoder = self.grad_clip.get('encoder', 0)
@@ -190,7 +221,8 @@ class Seq2SeqTrainer(object):
                         clip_grad_norm_(
                             self.model.decoder.parameters(), clip_decoder)
                 elif self.grad_clip > 0:  # grad_clip is a number
-                    clip_grad_norm_(self.model.parameters(), self.grad_clip)
+                    clip_grad_norm_(
+                        self.model.parameters(), self.grad_clip)
             if self.embedding_grad_clip is not None and self.embedding_grad_clip > 0:
                 if hasattr(self.model.encoder, 'embedder'):
                     clip_grad_norm_(self.model.encoder.embedder.parameters(),
@@ -199,9 +231,9 @@ class Seq2SeqTrainer(object):
                     clip_grad_norm_(self.model.decoder.embedder.parameters(),
                                     self.embedding_grad_clip)
             self.optimizer.step()
-        return loss_measure, accuracy, num_words
+        return loss_measure, accuracy_measure, num_words
 
-    def _feed_data(self, data_loader, num_iterations=None, training=True):
+    def _feed_data(self, data_loader, num_iterations=None, training=True, chunk_batch=1):
         if training:
             counter = cycle(range(self.keep_checkpoints))
             assert self.optimizer is not None
@@ -219,18 +251,19 @@ class Seq2SeqTrainer(object):
             # measure data loading time
             data_time.update(time.time() - end)
 
-            if training:
-                self.epoch += 1. / len(data_loader)
-                if self.distributed:
-                    data_loader.sampler.set_epoch(int(math.floor(self.epoch)))
-                self.training_steps += 1
-                # update optimizer according to epoch and steps
-                self.optimizer.update(self.epoch, self.training_steps)
-
             try:
+                if training:
+                    self.epoch += 1. / len(data_loader)
+                    if self.distributed:
+                        data_loader.sampler.set_epoch(
+                            int(math.floor(self.epoch)))
+                    self.training_steps += 1
+                    # update optimizer according to epoch and steps
+                    self.optimizer.update(self.epoch, self.training_steps)
                 # do a train/evaluate iteration
                 loss, acc, num_words = self.iterate(src, target,
-                                                    training=training)
+                                                    training=training,
+                                                    chunk_batch=chunk_batch)
 
                 # measure accuracy and record loss
                 losses.update(loss, num_words)
@@ -281,6 +314,7 @@ class Seq2SeqTrainer(object):
         for result in self._feed_data(
                 data_loader,
                 num_iterations=self.eval_freq,
+                chunk_batch=self.chunk_batch,
                 training=True):
             yield result
             self.model.train()
@@ -440,8 +474,8 @@ class NestedTrainer(Seq2SeqTrainer):
 
     def iterate(self, src_tuple, target_tuple, training=True):
         # limit number of tokens to avoid gpu overload
-        if self.limit_num_tokens is not None:
-            src_tuple, target_tuple = self._batch_limit_tokens(
+        if self.max_tokens is not None:
+            src_tuple, target_tuple = self._batch_max_tokens(
                 src_tuple, target_tuple)
         (src_word, src_word_length), (src_char, src_char_length) = src_tuple
         (target_word, target_word_length), (target_char, target_char_length) \

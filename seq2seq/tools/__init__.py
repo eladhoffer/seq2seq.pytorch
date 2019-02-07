@@ -16,6 +16,30 @@ def _limit_lengths(seqs, max_length=None, max_tokens=None):
     return lengths
 
 
+# def _limit_batch_tokens(seqs, max_length=None, max_tokens=None, log=False):
+#     """
+#     seqs: a list of Tensors to be batched together
+#     max_length: maximum sequence length permitted
+#     max_tokens: maximum number of tokens (with padding) permitted -- batch will be trimed if exceeded 
+#     """
+#     max_length = max_length or float('inf')
+#     lengths = [min(s.nelement(), max_length) for s in seqs]
+#     if max_tokens is not None:
+#         num_tokens = max(lengths) * len(seqs)
+#         if num_tokens > max_tokens:  # needs to restrict batch size to fit maximum tokens
+#             # account for padding in final tensor
+#             padded_lengths = np.maximum.accumulate(lengths)
+#             num_tokens_batch = padded_lengths * (np.arange(len(seqs)) + 1)
+#             # determine new batch size and trim sequence
+#             B = int((num_tokens_batch > max_tokens).argmax() - 1)
+#             seqs = seqs[:B]
+#             lengths = lengths[:B]
+#             if log:
+#                 logging.debug('Trimmed batch to %s as number of tokens was > %s'
+#                               % (B, max_tokens))
+#     return seqs, lengths
+
+
 def batch_sequences(seqs, max_length=None, max_tokens=None, fixed_length=None, batch_first=False, pad_value=PAD,
                     sort=False, pack=False, augment=False, device=None, dtype=torch.long):
     """

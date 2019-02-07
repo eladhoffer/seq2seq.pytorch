@@ -81,22 +81,22 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
                     help='evaluate model FILE on validation set')
-parser.add_argument('--grad-clip', default='5.', type=str,
-                    help='maximum grad norm value')
+parser.add_argument('--grad-clip', default='-1.', type=str,
+                    help='maximum grad norm value. negative for off')
 parser.add_argument('--embedding-grad-clip', default=None, type=float,
                     help='maximum embedding grad norm value')
 parser.add_argument('--label-smoothing', default=0, type=float,
                     help='label smoothing coefficient - default 0')
 parser.add_argument('--uniform-init', default=None, type=float,
                     help='if value not None - init weights to U(-value,value)')
-parser.add_argument('--max-length', default=100, type=int,
+parser.add_argument('--max-length', default=None, type=int,
                     help='maximum sequence length')
 parser.add_argument('--max-tokens', default=None, type=int,
-                    help='maximum sequence tokens')
+                    help='maximum sequence tokens -- batch is trimmed if exceeded')
 parser.add_argument('--fixed-length', default=None, type=int,
                     help='fixed sequence length')
-parser.add_argument('--limit-num-tokens', default=None, type=int,
-                    help='trim batch size to fit maximum num of tokens')
+parser.add_argument('--chunk-batch', default=1, type=int,
+                    help='chunk batch size for multiple passes (training) -- used to fit large batches in memory')
 parser.add_argument('--seed', default=123, type=int,
                     help='random seed (default: 123)')
 
@@ -180,7 +180,6 @@ def main(args):
                                          sampler=train_sampler,
                                          pack=pack_encoder_inputs,
                                          max_length=args.max_length,
-                                         max_tokens=args.max_tokens,
                                          fixed_length=args.fixed_length,
                                          num_workers=args.workers,
                                          drop_last=True)
@@ -189,7 +188,6 @@ def main(args):
                                      shuffle=False,
                                      pack=pack_encoder_inputs,
                                      max_length=args.max_length,
-                                     max_tokens=args.max_tokens,
                                      fixed_length=args.fixed_length,
                                      num_workers=args.workers)
 
@@ -201,7 +199,8 @@ def main(args):
         save_info={'tokenizers': train_data.tokenizers,
                    'config': args},
         regime=regime,
-        limit_num_tokens=args.limit_num_tokens,
+        max_tokens=args.max_tokens,
+        chunk_batch=args.chunk_batch,
         distributed=args.distributed,
         local_rank=args.local_rank,
         device_ids=args.device_ids,
