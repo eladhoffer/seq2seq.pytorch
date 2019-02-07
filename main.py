@@ -59,6 +59,8 @@ parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     help='mini-batch size (default: 32)')
+parser.add_argument('--eval-batch-size', default=None, type=int,
+                    help='mini-batch size used for evaluation (default: batch-size)')
 parser.add_argument('--world-size', default=-1, type=int,
                     help='number of distributed processes')
 parser.add_argument('--local_rank', default=-1, type=int,
@@ -183,7 +185,7 @@ def main(args):
                                          fixed_length=args.fixed_length,
                                          num_workers=args.workers,
                                          drop_last=True)
-    val_loader = val_data.get_loader(batch_size=args.batch_size,
+    val_loader = val_data.get_loader(batch_size=args.eval_batch_size or args.batch_size,
                                      batch_first=batch_first,
                                      shuffle=False,
                                      pack=pack_encoder_inputs,
