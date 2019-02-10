@@ -14,7 +14,7 @@ def _sum_tensor_scalar(tensor, scalar, expand_size):
 
 class Linear(nn.Linear):
     def __init__(self, in_features, out_features, bias=True, groups=1,
-                 multiplier=False, pre_bias=True, post_bias=True):
+                 multiplier=False, pre_bias=False, post_bias=False):
         if in_features % groups != 0:
             raise ValueError('in_features must be divisible by groups')
         if out_features % groups != 0:
