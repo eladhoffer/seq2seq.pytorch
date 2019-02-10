@@ -97,6 +97,8 @@ parser.add_argument('--max-tokens', default=None, type=int,
                     help='maximum sequence tokens -- batch is trimmed if exceeded')
 parser.add_argument('--fixed-length', default=None, type=int,
                     help='fixed sequence length')
+parser.add_argument('--tokenizer-sampling',  action='store_true',
+                    help='use tokenization sampling for (sentencepiece, uniform)')
 parser.add_argument('--chunk-batch', default=1, type=int,
                     help='chunk batch size for multiple passes (training) -- used to fit large batches in memory')
 parser.add_argument('--seed', default=123, type=int,
@@ -148,7 +150,7 @@ def main(args):
     args.data_config = literal_eval(args.data_config)
     args.grad_clip = literal_eval(args.grad_clip)
     train_data = dataset(args.dataset_dir, split='train',
-                         sample=True, **args.data_config)
+                         sample=args.tokenizer_sampling, **args.data_config)
     val_data = dataset(args.dataset_dir, split='dev', **args.data_config)
     src_tok, target_tok = train_data.tokenizers.values()
 
