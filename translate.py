@@ -85,7 +85,8 @@ if __name__ == '__main__':
                                    max_input_length=args.max_input_length,
                                    max_output_length=args.max_output_length,
                                    length_normalization_factor=args.length_normalization,
-                                   device=args.device)
+                                   device=args.device,
+                                   device_ids=args.device_ids)
 
     if args.input_file is not None:
         output_file = codecs.open(args.output, 'w', encoding='UTF-8')

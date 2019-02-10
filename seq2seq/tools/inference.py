@@ -68,10 +68,12 @@ class Translator(object):
                  max_input_length=None,
                  max_output_length=50,
                  get_attention=False,
-                 device="cpu"):
+                 device="cpu",
+                 device_ids=None):
         config = checkpoint['config']
         self.model = getattr(models, config.model)(**config.model_config)
         self.model.load_state_dict(checkpoint['state_dict'])
+
         self.src_tok, self.target_tok = checkpoint['tokenizers'].values()
         if use_moses is None:  # if not set, turn on if training was done with moses pretok
             use_moses = config.data_config.get('moses_pretok', False)
@@ -84,6 +86,7 @@ class Translator(object):
         self.insert_src_end = [EOS]
         self.get_attention = get_attention
         self.device = device
+        self.device_ids = device_ids
         self.model.to(self.device)
         self.model.eval()
 
@@ -92,6 +95,7 @@ class Translator(object):
         self.max_output_length = max_output_length
         self.get_attention = get_attention
         self.length_normalization_factor = length_normalization_factor
+        self.batch_first = self.model.encoder.batch_first
         self.pack_encoder_inputs = getattr(self.model.encoder, 'pack_inputs',
                                            False)
 
@@ -147,14 +151,14 @@ class Translator(object):
                               sort=False,
                               pack=self.pack_encoder_inputs,
                               device=self.device,
-                              batch_first=self.model.encoder.batch_first)[0]
+                              batch_first=self.batch_first)[0]
 
         with torch.no_grad():
             seqs = self.model.generate(src, bos,
                                        beam_size=self.beam_size,
                                        max_sequence_length=self.max_output_length,
                                        length_normalization_factor=self.length_normalization_factor,
-                                       get_attention=self.get_attention, devices=None)
+                                       get_attention=self.get_attention, device_ids=self.device_ids)
         # remove forced  tokens
         preds = [s.output[len(self.insert_target_start):] for s in seqs]
         output = [self.target_tok.detokenize(p[:-1]) for p in preds]

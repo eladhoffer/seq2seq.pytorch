@@ -22,20 +22,20 @@ class Seq2Seq(nn.Module):
         return State(context=context,
                      batch_first=getattr(self.decoder, 'batch_first', context.batch_first))
 
-    def encode(self, inputs, hidden=None, devices=None):
-        if isinstance(devices, tuple):
+    def encode(self, inputs, hidden=None, device_ids=None):
+        if isinstance(device_ids, tuple):
             return data_parallel(self.encoder, (inputs, hidden),
-                                 device_ids=devices,
+                                 device_ids=device_ids,
                                  dim=0 if self.encoder.batch_first else 1)
         else:
             return self.encoder(inputs, hidden)
 
-    def decode(self, inputs, state, get_attention=None, devices=None):
-        if isinstance(devices, tuple):
+    def decode(self, inputs, state, get_attention=None, device_ids=None):
+        if isinstance(device_ids, tuple):
             inputs = (inputs, state, get_attention) if get_attention else (
                 inputs, state)
             return data_parallel(self.decoder, inputs,
-                                 device_ids=devices,
+                                 device_ids=device_ids,
                                  dim=0 if self.decoder.batch_first else 1)
         else:
             if get_attention:
@@ -43,21 +43,22 @@ class Seq2Seq(nn.Module):
             else:
                 return self.decoder(inputs, state)
 
-    def forward(self, input_encoder, input_decoder, encoder_hidden=None, devices=None):
-        if not isinstance(devices, dict):
-            devices = {'encoder': devices, 'decoder': devices}
+    def forward(self, input_encoder, input_decoder, encoder_hidden=None, device_ids=None):
+        if not isinstance(device_ids, dict):
+            device_ids = {'encoder': device_ids, 'decoder': device_ids}
         context = self.encode(input_encoder, encoder_hidden,
-                              devices=devices.get('encoder', None))
+                              device_ids=device_ids.get('encoder', None))
         if hasattr(self, 'bridge'):
             state = self.bridge(context)
         output, state = self.decode(
-            input_decoder, state, devices=devices.get('decoder', None))
+            input_decoder, state, device_ids=device_ids.get('decoder', None))
         return output
 
     def _decode_step(self, input_list, state_list, k=1,
                      feed_all_timesteps=False,
                      remove_unknown=False,
-                     get_attention=False):
+                     get_attention=False,
+                     device_ids=None):
 
         view_shape = (-1, 1) if self.decoder.batch_first else (1, -1)
         time_dim = 1 if self.decoder.batch_first else 0
@@ -76,8 +77,9 @@ class Seq2Seq(nn.Module):
             inputs = torch.stack(last_tokens).view(*view_shape)
 
         states = State().from_list(state_list)
-        logits, new_states = self.decode(
-            inputs, states, get_attention=get_attention)
+        logits, new_states = self.decode(inputs, states,
+                                         get_attention=get_attention,
+                                         device_ids=device_ids)
         # use only last prediction
         logits = logits.select(time_dim, -1).contiguous()
         if remove_unknown:
@@ -90,12 +92,11 @@ class Seq2Seq(nn.Module):
 
     def generate(self, input_encoder, input_decoder, beam_size=None,
                  max_sequence_length=None, length_normalization_factor=0,
-                 get_attention=False, devices=None):
-        batch_size = 1 if self.decoder.batch_first else 0
-        if not isinstance(devices, dict):
-            devices = {'encoder': devices, 'decoder': devices}
+                 get_attention=False, device_ids=None):
+        if not isinstance(device_ids, dict):
+            device_ids = {'encoder': device_ids, 'decoder': device_ids}
         context = self.encode(input_encoder,
-                              devices=devices.get('encoder', None))
+                              device_ids=device_ids.get('encoder', None))
         if hasattr(self, 'bridge'):
             state = self.bridge(context)
         state_list = state.as_list()
@@ -104,5 +105,6 @@ class Seq2Seq(nn.Module):
             beam_size=beam_size,
             max_sequence_length=max_sequence_length,
             get_attention=get_attention,
-            length_normalization_factor=length_normalization_factor)
+            length_normalization_factor=length_normalization_factor,
+            device_ids=device_ids.get('encoder', None))
         return generator.beam_search(input_decoder, state_list)

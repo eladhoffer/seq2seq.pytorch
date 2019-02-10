@@ -99,7 +99,8 @@ class SequenceGenerator(object):
                  max_sequence_length=50,
                  get_attention=False,
                  length_normalization_factor=0.0,
-                 length_normalization_const=5.):
+                 length_normalization_const=5.,
+                 device_ids=None):
         """Initializes the generator.
 
         Args:
@@ -121,6 +122,7 @@ class SequenceGenerator(object):
         self.length_normalization_factor = length_normalization_factor
         self.length_normalization_const = length_normalization_const
         self.get_attention = get_attention
+        self.device_ids = device_ids
 
     def beam_search(self, initial_input, initial_state=None):
         """Runs beam search sequence generation on a single image.
@@ -178,7 +180,9 @@ class SequenceGenerator(object):
             words, logprobs, new_states \
                 = self.decode_step(
                     input_feed, state_feed,
-                    k=self.beam_size + 1, get_attention=self.get_attention)
+                    k=self.beam_size + 1,
+                    get_attention=self.get_attention,
+                    device_ids=self.device_ids)
 
             idx = 0
             for b in range(batch_size):
