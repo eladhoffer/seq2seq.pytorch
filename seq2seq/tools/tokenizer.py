@@ -287,15 +287,16 @@ class SentencePiece(Tokenizer):
         try:
             with os.fdopen(fd, 'wb') as tmp:
                 tmp.write(model_serialized)
-            self.load_model(path)
+            self.load_model(path, add_suffix=False)
         finally:
             os.remove(path)
 
-    def load_model(self, file_prefix):
-        model_file = '{}.model'.format(file_prefix)
+    def load_model(self, file_prefix, add_suffix=True):
+        if add_suffix:
+            file_prefix = '{}.model'.format(file_prefix)
         self.model = spm.SentencePieceProcessor()
-        self.model.Load(model_file)
-        self._model_serialized = self.serialize_model(model_file)
+        self.model.Load(file_prefix)
+        self._model_serialized = self.serialize_model(file_prefix)
 
     def learn_model(self, file_list, **kwargs):
         file_list = ','.join([os.path.abspath(filename)
