@@ -55,12 +55,9 @@ class MultiLanguageDataset(object):
     def __init__(self, prefix,
                  languages,
                  tokenization='bpe',
-                 use_moses=False,
-                 num_symbols=32000,
+                 tokenization_config={},
+                 tokenization_model_files=None,
                  shared_vocab=True,
-                 code_files=None,
-                 vocab_files=None,
-                 model_prefixes=None,
                  insert_start=[BOS], insert_end=[EOS],
                  mark_language=False,
                  tokenizers=None,
@@ -68,12 +65,14 @@ class MultiLanguageDataset(object):
                  load_data=True,
                  sample=False):
         super(MultiLanguageDataset, self).__init__()
+        if tokenization.startswith('moses+'):
+            tokenization = tokenization.replace('moses+', '')
+            mark_moses_pretok = True
         self.languages = languages
         self.shared_vocab = shared_vocab
-        self.num_symbols = num_symbols
         self.tokenizers = tokenizers
-        self.use_moses = use_moses
         self.tokenization = tokenization
+        self.tokenization_config = tokenization_config
         self.insert_start = insert_start
         self.insert_end = insert_end
         self.vocab_limit = vocab_limit
@@ -82,46 +81,38 @@ class MultiLanguageDataset(object):
         self.input_files = {l: '{prefix}.{lang}'.format(
             prefix=prefix, lang=l) for l in languages}
 
-        if use_moses:
-            prefix += '.moses'
+        if tokenization == 'bpe' or tokenization == 'sentencepiece':
+            self.tokenization_config.setdefault('num_symbols', 32000)
+
+        tok_setting = [tokenization]
+        if mark_moses_pretok:
+            tok_setting = ['moses_pretok'] + tok_setting
+        for n, v in tokenization_config.items():
+            if (isinstance(v, bool) and v):
+                tok_setting.append(n)
+            elif n == 'model_type' or n == 'num_symbols':
+                tok_setting.append(str(v))
+            else:
+                tok_setting.append('%s-%s' % (n, v))
+
+        tok_prefix = '.'.join(tok_setting)
 
         if self.tokenizers is None:
             if tokenization not in ['sentencepiece', 'bpe', 'char', 'word', 'word+char']:
                 raise ValueError("An invalid option for tokenization was used, options are {0}".format(
                     ','.join(['sentencepiece', 'bpe', 'char', 'word'])))
 
-            if tokenization == 'bpe':
-                if not shared_vocab:
-                    self.code_files = code_files or {l: '{prefix}.{lang}.{tok}.codes_{num_symbols}'.format(
-                        prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
-                else:
-                    code_file = code_files or '{prefix}.{tok}.shared_codes_{num_symbols}_{languages}'.format(
-                        prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
-                    self.code_files = {l: code_file for l in languages}
-
-                if not shared_vocab:
-                    self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab_{num_symbols}'.format(
-                        prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
-                else:
-                    vocab = vocab_files or '{prefix}.{tok}.shared_vocab_{num_symbols}_{languages}'.format(
-                        prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
-                    self.vocab_files = {l: vocab for l in languages}
-            elif tokenization == 'sentencepiece':
-                if not shared_vocab:
-                    self.model_prefixes = model_prefixes or {l: '{prefix}.{lang}.{tok}.{num_symbols}'.format(
-                        prefix=prefix, lang=l, tok=tokenization, num_symbols=num_symbols) for l in languages}
-                else:
-                    model_prefix = model_prefixes or '{prefix}.{tok}.{num_symbols}_{languages}'.format(
-                        prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)), num_symbols=num_symbols)
-                    self.model_prefixes = {l: model_prefix for l in languages}
+            if not shared_vocab:
+                self.tok_files = tokenization_model_files or {l: '{prefix}.{tok}.{lang}'.format(
+                    prefix=prefix, lang=l, tok=tok_prefix) for l in languages}
             else:
-                if not shared_vocab:
-                    self.vocab_files = vocab_files or {l: '{prefix}.{lang}.{tok}.vocab'.format(
-                        prefix=prefix, lang=l, tok=tokenization) for l in languages}
-                else:
-                    vocab = vocab_files or '{prefix}.{tok}.shared_vocab_{languages}'.format(
-                        prefix=prefix, tok=tokenization, languages='_'.join(sorted(languages)))
-                    self.vocab_files = {l: vocab for l in languages}
+                tok_file = tokenization_model_files or '{prefix}.{tok}.shared-{languages}'.format(
+                    prefix=prefix, tok=tok_prefix, languages='_'.join(sorted(languages)))
+                self.tok_files = {l: tok_file for l in languages}
+
+            if self.mark_language:
+                self.tokenization_config['additional_tokens'] = \
+                    [LANGUAGE_TOKENS(l) for l in self.languages]
             self.generate_tokenizers()
 
         if load_data:
@@ -129,57 +120,28 @@ class MultiLanguageDataset(object):
 
     def generate_tokenizers(self):
         self.tokenizers = OrderedDict()
-        additional_tokens = None
-        if self.mark_language:
-            additional_tokens = [LANGUAGE_TOKENS(l) for l in self.languages]
+
         for l in self.languages:
             if self.shared_vocab:
                 files = [self.input_files[t] for t in self.languages]
             else:
                 files = [self.input_files[l]]
+            tok_config = deepcopy(self.tokenization_config)
+            tok_config['file_prefix'] = self.tok_files[l]
+            tokz = self.__tokenizers[self.tokenization](**tok_config)
             if self.tokenization == 'sentencepiece':
-                tokz = SentencePiece(self.model_prefixes[l],
-                                     num_symbols=self.num_symbols,
-                                     additional_tokens=additional_tokens)
                 if getattr(tokz, 'model', None) is None:
                     tokz.learn_model(files)
-            elif self.tokenization == 'word+char':
-                word_vocab_file = self.vocab_files[l] + '.word'
-                char_vocab_file = self.vocab_files[l] + '.char'
-                tokz = WordCharTokenizer(
-                    word_vocab_file=word_vocab_file,
-                    char_vocab_file=char_vocab_file,
-                    word_additional_tokens=additional_tokens,
-                    char_additional_tokens=additional_tokens)
-
-                if not hasattr(tokz.word_tokenizer, 'vocab'):
-                    logging.info('generating vocabulary. saving to %s' %
-                                 self.vocab_files[l])
-                    tokz.get_vocab(files)
-                    tokz.save_vocab(word_vocab_file, char_vocab_file)
-                tokz.load_vocab(word_vocab_file, char_vocab_file,
-                                limit=self.vocab_limit)
             else:
-                if self.tokenization == 'bpe':
-                    tokz = BPETokenizer(self.code_files[l],
-                                        vocab_file=self.vocab_files[l],
-                                        num_symbols=self.num_symbols,
-                                        additional_tokens=additional_tokens,
-                                        use_moses=l if self.use_moses else None)
-                    if not hasattr(tokz, 'bpe'):
-                        tokz.learn_bpe(files)
-                else:
-                    tokz = self.__tokenizers[self.tokenization](
-                        vocab_file=self.vocab_files[l],
-                        additional_tokens=additional_tokens,
-                        use_moses=l if self.use_moses else None)
+                if self.tokenization == 'bpe' and not hasattr(tokz, 'bpe'):
+                    tokz.learn_bpe(files)
 
-                if not hasattr(tokz, 'vocab'):
+                if getattr(tokz, 'vocab', None) is None:
                     logging.info('generating vocabulary. saving to %s' %
-                                 self.vocab_files[l])
+                                 self.tok_files[l])
                     tokz.get_vocab(files)
-                    tokz.save_vocab(self.vocab_files[l])
-                tokz.load_vocab(self.vocab_files[l], limit=self.vocab_limit)
+                    tokz.save_vocab(self.tok_files[l])
+                tokz.load_vocab(self.tok_files[l], limit=self.vocab_limit)
             self.tokenizers[l] = tokz
 
     def load_data(self):
@@ -187,8 +149,8 @@ class MultiLanguageDataset(object):
         for l in self.languages:
             insert_start = self.insert_start
             if self.mark_language:
-                lang_idx = self.tokenizers[l]\
-                    .special_tokens.index(LANGUAGE_TOKENS(l))
+                lang_idx = self.tokenizers[l].special_tokens.index(
+                    LANGUAGE_TOKENS(l))
                 insert_start = [lang_idx]
             insert_end = self.insert_end
 

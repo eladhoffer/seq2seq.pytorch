@@ -12,36 +12,34 @@ class WMT(MultiLanguageDataset):
                  root,
                  split='train',
                  tokenization='bpe',
-                 use_moses=False,
-                 num_symbols=32000,
+                 tokenization_config={},
+                 tokenization_model_files=None,
                  shared_vocab=True,
-                 code_files=None,
-                 vocab_files=None,
-                 model_prefixes=None,
                  insert_start=[BOS],
                  insert_end=[EOS],
                  mark_language=False,
                  tokenizers=None,
                  vocab_limit=None,
-                 moses_pretok=False,
+                 moses_pretok=True,
                  languages=['en', 'de'],
                  train_file="{root}/train{pretok}.clean",
                  val_file="{root}/newstest2014{pretok}.clean",
                  test_file="{root}/newstest2016{pretok}.clean",
                  load_data=True,
                  sample=False):
-        pretok = '.tok' if moses_pretok else ''
+        pretok = ''
+        sample = sample if split == 'train' else False
+        if moses_pretok:
+            pretok = '.tok'
+            tokenization = 'moses+' + tokenization
         train_prefix = train_file.format(root=root, pretok=pretok)
         options = dict(
             prefix=train_prefix,
             languages=languages,
             tokenization=tokenization,
-            use_moses=use_moses,
-            num_symbols=num_symbols,
+            tokenization_config=tokenization_config,
+            tokenization_model_files=tokenization_model_files,
             shared_vocab=shared_vocab,
-            code_files=code_files,
-            vocab_files=vocab_files,
-            model_prefixes=model_prefixes,
             insert_start=insert_start,
             insert_end=insert_end,
             mark_language=mark_language,
@@ -57,8 +55,8 @@ class WMT(MultiLanguageDataset):
         else:
             train_data = MultiLanguageDataset(**train_options)
             options['tokenizers'] = getattr(train_data, 'tokenizers', None)
-            options['code_files'] = getattr(train_data, 'code_files', None)
-            options['vocab_files'] = getattr(train_data, 'vocab_files', None)
+            options['tokenization_model_files'] = getattr(
+                train_data, 'tokenization_model_files', None)
             if split == 'dev':
                 prefix = val_file.format(root=root, pretok=pretok)
             elif split == 'test':

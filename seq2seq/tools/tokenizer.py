@@ -81,16 +81,17 @@ def _get_double_vocabulary(item_list, segment_words=_segment_words, segment_char
 
 class Tokenizer(object):
 
-    def __init__(self, vocab_file=None, additional_tokens=None, use_moses=None):
+    def __init__(self, file_prefix=None, additional_tokens=None, use_moses=None):
         self.special_tokens = [PAD_TOKEN, UNK_TOKEN, BOS_TOKEN, EOS_TOKEN]
+        if file_prefix is not None:
+            self.vocab_file = self._vocab_filename(file_prefix)
         if use_moses is not None:
             self.enable_moses(lang=use_moses)
         if additional_tokens is not None:
             self.special_tokens += additional_tokens
         self.__word2idx = {}
-        self.vocab_file = vocab_file
-        if os.path.isfile(vocab_file):
-            self.load_vocab(vocab_file)
+        if os.path.isfile(self.vocab_file):
+            self.load_vocab(self.vocab_file)
 
     def enable_moses(self, lang='en', tokenize=True, detokenize=True):
         if tokenize:
@@ -102,6 +103,10 @@ class Tokenizer(object):
             self._moses_detok = MosesDetokenizer(lang=lang)
         else:
             self._moses_detok = None
+
+    @staticmethod
+    def _vocab_filename(model_prefix):
+        return '{}.vocab'.format(model_prefix)
 
     @property
     def vocab_size(self):
@@ -144,15 +149,17 @@ class Tokenizer(object):
         self.vocab = vocab.most_common(limit)
         self.update_word2idx()
 
-    def save_vocab(self, vocab_filename):
+    def save_vocab(self, file_prefix):
+        vocab_file = self._vocab_filename(file_prefix)
         if self.vocab is not None:
-            with codecs.open(vocab_filename, 'w', encoding='UTF-8') as f:
+            with codecs.open(vocab_file, 'w', encoding='UTF-8') as f:
                 for (key, freq) in self.vocab:
                     f.write("{0} {1}\n".format(key, freq))
 
-    def load_vocab(self, vocab_filename, limit=None, min_count=1):
+    def load_vocab(self, file_prefix, limit=None, min_count=1):
+        vocab_file = self._vocab_filename(file_prefix)
         vocab = OrderedCounter()
-        with codecs.open(vocab_filename, encoding='UTF-8') as f:
+        with codecs.open(vocab_file, encoding='UTF-8') as f:
             for line in f:
                 try:
                     word, count = line.strip().split()
@@ -185,19 +192,20 @@ class Tokenizer(object):
 
 class BPETokenizer(Tokenizer):
 
-    def __init__(self, codes_file, vocab_file, additional_tokens=None,
+    def __init__(self, file_prefix, additional_tokens=None,
                  num_symbols=10000, min_frequency=2, total_symbols=False, separator='@@',
                  **kwargs):
-        super(BPETokenizer, self).__init__(vocab_file=vocab_file,
+        super(BPETokenizer, self).__init__(file_prefix=file_prefix,
                                            additional_tokens=additional_tokens,
                                            **kwargs)
         self.num_symbols = num_symbols
         self.min_frequency = min_frequency
         self.total_symbols = total_symbols
         self.separator = separator
-        self.codes_file = codes_file
-        if os.path.isfile(codes_file):
-            self.set_bpe(codes_file)
+        self.vocab_file = self._vocab_filename(file_prefix)
+        self.codes_file = '{}.codes'.format(file_prefix)
+        if os.path.isfile(self.codes_file):
+            self.set_bpe(self.codes_file)
 
     def set_bpe(self, codes_file):
         with codecs.open(self.codes_file, encoding='UTF-8') as codes:
@@ -252,25 +260,26 @@ class CharTokenizer(Tokenizer):
 
 
 class SentencePiece(Tokenizer):
-    def __init__(self, model_prefix, additional_tokens=None,
+    def __init__(self, file_prefix, additional_tokens=None,
                  num_symbols=10000, model_type='unigram',
-                 character_coverage=None, split_by_whitespace=True):
+                 character_coverage=1.0, split_by_whitespace=True,
+                 use_moses=None):
         assert _SENTENCEPIECE_AVAILABLE
-        self.model_prefix = os.path.abspath(model_prefix)
+        self.model_prefix = os.path.abspath(file_prefix)
         self.num_symbols = num_symbols
         self.model_type = model_type
         self.character_coverage = character_coverage
         self.split_by_whitespace = split_by_whitespace
-        self.vocab_file = '{}.vocab'.format(model_prefix)
-        self.model_file = '{}.model'.format(model_prefix)
         self.model = None
+        if use_moses is not None:
+            self.enable_moses(lang=use_moses)
         if additional_tokens is not None:
             self.special_tokens += additional_tokens
-        if os.path.isfile(self.model_file):
-            self.load_model(self.model_file)
+        if os.path.isfile('{}.model'.format(file_prefix)):
+            self.load_model(file_prefix)
 
-    def serialize_model(self, model_file):
-        with open(model_file, 'rb') as f:
+    def serialize_model(self, file_prefix):
+        with open(file_prefix, 'rb') as f:
             return f.read()
 
     def deserialize_model(self, model_serialized):
@@ -282,7 +291,8 @@ class SentencePiece(Tokenizer):
         finally:
             os.remove(path)
 
-    def load_model(self, model_file):
+    def load_model(self, file_prefix):
+        model_file = '{}.model'.format(file_prefix)
         self.model = spm.SentencePieceProcessor()
         self.model.Load(model_file)
         self._model_serialized = self.serialize_model(model_file)
@@ -297,7 +307,7 @@ class SentencePiece(Tokenizer):
                             model_type=self.model_type,
                             split_by_whitespace=self.split_by_whitespace,
                             **kwargs)
-        self.load_model(self.model_file)
+        self.load_model(self.model_prefix)
 
     def tokenize(self, line, insert_start=None, insert_end=None, sample=None):
         """tokenize a line, insert_start and insert_end are lists of tokens"""
@@ -353,7 +363,8 @@ class SentencePiece(Tokenizer):
         kwargs.update({'unk_piece': UNK_TOKEN, 'bos_piece': BOS_TOKEN,
                        'eos_piece': EOS_TOKEN, 'pad_piece': PAD_TOKEN,
                        'unk_id': UNK, 'bos_id': BOS,
-                       'eos_id': EOS, 'pad_id': PAD
+                       'eos_id': EOS, 'pad_id': PAD,
+                       'unk_surface': UNK_TOKEN,
                        })
         for arg, val in kwargs.items():
             if isinstance(val, bool):
@@ -373,11 +384,12 @@ class SentencePiece(Tokenizer):
 
 class WordCharTokenizer(Tokenizer):
 
-    def __init__(self, word_vocab_file=None, word_additional_tokens=None,  char_vocab_file=None, char_additional_tokens=None):
+    def __init__(self, file_prefix, additional_tokens=None):
         self.word_tokenizer = Tokenizer(
-            vocab_file=word_vocab_file, additional_tokens=word_additional_tokens)
+            file_prefix='{}.word'.format(file_prefix), additional_tokens=additional_tokens)
         self.char_tokenizer = CharTokenizer(
-            vocab_file=char_vocab_file, additional_tokens=char_additional_tokens)
+            file_prefix='{}.char'.format(file_prefix), additional_tokens=additional_tokens)
+        self.vocab = self.word_tokenizer.vocab
 
     @property
     def vocab_size(self):
@@ -406,16 +418,18 @@ class WordCharTokenizer(Tokenizer):
         self.word_tokenizer.update_word2idx()
         self.char_tokenizer.vocab = vocab_chars.most_common(limit)
         self.char_tokenizer.update_word2idx()
+        self.vocab = self.word_tokenizer.vocab
 
-    def save_vocab(self, word_vocab_filename, char_vocab_filename):
-        self.word_tokenizer.save_vocab(word_vocab_filename)
-        self.char_tokenizer.save_vocab(char_vocab_filename)
+    def save_vocab(self, vocab_filename):
+        self.word_tokenizer.save_vocab('{}.word'.format(vocab_filename))
+        self.char_tokenizer.save_vocab('{}.char'.format(vocab_filename))
 
-    def load_vocab(self, word_vocab_filename, char_vocab_filename, limit=None, min_count=1):
+    def load_vocab(self, vocab_filename, limit=None, min_count=1):
         self.word_tokenizer.load_vocab(
-            word_vocab_filename, limit=limit, min_count=min_count)
+            '{}.word'.format(vocab_filename), limit=limit, min_count=min_count)
         self.char_tokenizer.load_vocab(
-            char_vocab_filename, limit=limit, min_count=min_count)
+            '{}.char'.format(vocab_filename), limit=limit, min_count=min_count)
+        self.vocab = self.word_tokenizer.vocab
 
     def tokenize(self, line, insert_start=None, insert_end=None, sample=None):
         """tokenize a line, insert_start and insert_end are lists of tokens"""
