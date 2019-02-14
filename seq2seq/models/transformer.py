@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import math
 from copy import deepcopy
 from .seq2seq_base import Seq2Seq
 from seq2seq.tools.config import PAD
@@ -15,6 +16,10 @@ class TransformerAttentionEncoder(nn.Module):
 
         super(TransformerAttentionEncoder, self).__init__()
         embedding_size = embedding_size or hidden_size
+        if embedding_size != hidden_size:
+            self.input_projection = nn.Parameter(
+                torch.empty(embedding_size, hidden_size))
+            nn.init.kaiming_uniform_(self.input_projection, a=math.sqrt(5))
         self.hidden_size = hidden_size
         self.batch_first = True
         self.mask_symbol = mask_symbol
@@ -37,6 +42,8 @@ class TransformerAttentionEncoder(nn.Module):
         else:
             padding_mask = None
         x = self.embedder(inputs).mul_(self.scale_embedding)
+        if self.input_projection is not None:
+            x = x @ self.input_projection
         x.add_(positional_embedding(x))
         x = self.dropout(x)
 
@@ -55,6 +62,10 @@ class TransformerAttentionDecoder(nn.Module):
 
         super(TransformerAttentionDecoder, self).__init__()
         embedding_size = embedding_size or hidden_size
+        if embedding_size != hidden_size:
+            self.input_projection = nn.Parameter(
+                torch.empty(embedding_size, hidden_size))
+            nn.init.kaiming_uniform_(self.input_projection, a=math.sqrt(5))
         self.batch_first = True
         self.mask_symbol = mask_symbol
         self.embedder = embedder or nn.Embedding(
@@ -72,10 +83,20 @@ class TransformerAttentionDecoder(nn.Module):
                                                   stateful=stateful)
                                      for _ in range(num_layers)
                                      ])
+
         if classifier:
-            self.classifier = nn.Linear(hidden_size, vocab_size)
+            self.classifier = nn.Linear(embedding_size, vocab_size)
             if tie_embedding:
                 self.embedder.weight = self.classifier.weight
+
+            if embedding_size != hidden_size:
+                if tie_embedding:
+                    self.output_projection = self.input_projection
+                else:
+                    self.output_projection = nn.Parameter(
+                        torch.empty(embedding_size, hidden_size))
+                    nn.init.kaiming_uniform_(
+                        self.output_projection, a=math.sqrt(5))
 
     def forward(self, inputs, state, get_attention=False):
         context = state.context
@@ -97,6 +118,8 @@ class TransformerAttentionDecoder(nn.Module):
         else:
             padding_mask = None
         x = self.embedder(inputs).mul_(self.scale_embedding)
+        if self.input_projection is not None:
+            x = x @ self.input_projection
         x.add_(positional_embedding(x, offset=time_step))
         x = self.dropout(x)
 
@@ -110,6 +133,8 @@ class TransformerAttentionDecoder(nn.Module):
                 attention_scores.append(attn_enc)
             else:
                 del attn_enc
+        if self.output_projection is not None:
+            x = x @ self.output_projection.t()
         if self.classifier is not None:
             x = self.classifier(x)
         if self.stateful:
@@ -159,7 +184,8 @@ class Transformer(Seq2Seq):
         decoder.setdefault('stateful', stateful)
 
         if isinstance(vocab_size, tuple):
-            embedder = CharWordEmbedder(vocab_size[1], embedding_size, hidden_size)
+            embedder = CharWordEmbedder(
+                vocab_size[1], embedding_size, hidden_size)
             encoder.setdefault('embedder', embedder)
             decoder.setdefault('embedder', embedder)
             decoder['classifier'] = False
@@ -169,4 +195,7 @@ class Transformer(Seq2Seq):
         self.decoder = TransformerAttentionDecoder(**decoder)
 
         if tie_embedding and not isinstance(vocab_size, tuple):
+            assert self.encoder.embedder.weight.shape == self.decoder.classifier.weight.shape
             self.encoder.embedder.weight = self.decoder.classifier.weight
+            if embedding_size != hidden_size:
+                self.encoder.input_projection = self.decoder.input_projection
