@@ -10,7 +10,7 @@ REF_TOK="./data/wmt16_de_en/newstest2014.tok.de"
 
 MODEL_PATH=$1
 BEAM=${2:-"1"}
-TARGET_TOK=${3:-"${MODEL_PATH}/${SRC_TOK}.target"}
+TARGET_TOK=${3:-"${MODEL_PATH}/newstest2014.tok.en.translated"}
 MOSES=${4:-"./data/wmt16_de_en/mosesdecoder/"}
 CHECKPOINT="${MODEL_PATH}/model_best.pth";
 
