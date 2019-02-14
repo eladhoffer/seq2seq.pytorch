@@ -16,9 +16,9 @@ python translate.py  -i ${SRC} \
   -m "${CHECKPOINT}" \
   -o $TARGET \
   --batch-size 32 \
-  --device-ids 3 \
-  --max-input-length 80 \
-  --max-output-length 80 \
+  --device-ids 0 \
+  --max-input-length 100 \
+  --max-output-length 100 \
   --beam-size ${BEAM} \
   --length-normalization 0.6;
 
