@@ -42,7 +42,7 @@ class TransformerAttentionEncoder(nn.Module):
         else:
             padding_mask = None
         x = self.embedder(inputs).mul_(self.scale_embedding)
-        if self.input_projection is not None:
+        if hasattr(self, 'input_projection'):
             x = x @ self.input_projection
         x.add_(positional_embedding(x))
         x = self.dropout(x)
@@ -118,7 +118,7 @@ class TransformerAttentionDecoder(nn.Module):
         else:
             padding_mask = None
         x = self.embedder(inputs).mul_(self.scale_embedding)
-        if self.input_projection is not None:
+        if hasattr(self, 'input_projection'):
             x = x @ self.input_projection
         x.add_(positional_embedding(x, offset=time_step))
         x = self.dropout(x)
@@ -133,7 +133,7 @@ class TransformerAttentionDecoder(nn.Module):
                 attention_scores.append(attn_enc)
             else:
                 del attn_enc
-        if self.output_projection is not None:
+        if hasattr(self, 'output_projection'):
             x = x @ self.output_projection.t()
         if self.classifier is not None:
             x = self.classifier(x)
