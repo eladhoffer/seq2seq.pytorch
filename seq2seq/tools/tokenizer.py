@@ -91,7 +91,7 @@ class Tokenizer(object):
             self.special_tokens += additional_tokens
         self.__word2idx = {}
         if os.path.isfile(self.vocab_file):
-            self.load_vocab(self.vocab_file)
+            self.load_vocab(file_prefix)
 
     def enable_moses(self, lang='en', tokenize=True, detokenize=True):
         if tokenize:
