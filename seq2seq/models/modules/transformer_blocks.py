@@ -112,6 +112,23 @@ class EncoderBlock(nn.Module):
         return x
 
 
+class EncoderBlockPreNorm(EncoderBlock):
+    def __init__(self, *kargs, **kwargs):
+        super(EncoderBlockPreNorm, self).__init__(*kargs, **kwargs)
+
+    def forward(self, inputs):
+        x = inputs
+        res = x
+        x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
+        x, _ = self.attention(x, x, x)
+        x = self.dropout(x).add_(res)
+        res = x
+        x = self.lnorm2(x) if hasattr(self, 'lnorm2') else x
+        x = self.fc(x)
+        x = self.dropout(x).add_(res)
+        return x
+
+
 class DecoderBlock(nn.Module):
 
     def __init__(self, hidden_size=512, num_heads=8, inner_linear=2048, inner_groups=1,
@@ -184,6 +201,38 @@ class DecoderBlock(nn.Module):
         x = self.fc(x)
         x = self.dropout(x).add_(res)
         x = self.lnorm3(x) if hasattr(self, 'lnorm3') else x
+
+        return x, attn_enc, state
+
+
+class DecoderBlockPreNorm(DecoderBlock):
+    def __init__(self, *kargs, **kwargs):
+        super(DecoderBlockPreNorm, self).__init__(*kargs, **kwargs)
+
+    def forward(self, inputs, context, state=None):
+        x = inputs
+        res = x
+        x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
+        if self.stateful:
+            x, state = self.state_block(x, state)
+        else:  # block_state are past inputs
+            if state is None:
+                x_past = x
+            else:
+                x_past = torch.cat((state, x), 1)
+            x, _ = self.masked_attention(x, x_past, x_past)
+            state = x_past
+        if hasattr(self, 'state_proj'):
+            x = self.state_proj(x)
+        x = self.dropout(x).add(res)
+        res = x
+        x = self.lnorm2(x) if hasattr(self, 'lnorm2') else x
+        x, attn_enc = self.attention(x, context, context)
+        x = self.dropout(x).add_(res)
+        res = x
+        x = self.lnorm3(x) if hasattr(self, 'lnorm3') else x
+        x = self.fc(x)
+        x = self.dropout(x).add_(res)
 
         return x, attn_enc, state
 
