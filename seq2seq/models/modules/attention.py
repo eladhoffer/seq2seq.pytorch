@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .weight_norm import weight_norm as wn
+from .linear import Linear
 
 """ Implementations of attention layers."""
 
@@ -182,17 +183,18 @@ class MultiHeadAttention(nn.Module):
     Scaled Dot-Product Attention
     """
 
-    def __init__(self, input_size, output_size, num_heads, weight_norm=False, dropout=0, causal=False):
+    def __init__(self, input_size, output_size, num_heads, weight_norm=False, groups=1, dropout=0, causal=False):
         super(MultiHeadAttention, self).__init__()
         assert(input_size % num_heads == 0)
         wn_func = wn if weight_norm else lambda x: x
         self.input_size = input_size
         self.output_size = output_size
         self.num_heads = num_heads
-        self.linear_q = wn_func(nn.Linear(input_size, input_size))
-        self.linear_k = wn_func(nn.Linear(input_size, input_size))
-        self.linear_v = wn_func(nn.Linear(input_size, input_size))
-        self.linear_out = wn_func(nn.Linear(input_size, output_size))
+        self.linear_q = wn_func(Linear(input_size, input_size, groups=groups))
+        self.linear_k = wn_func(Linear(input_size, input_size, groups=groups))
+        self.linear_v = wn_func(Linear(input_size, input_size, groups=groups))
+        self.linear_out = wn_func(
+            Linear(input_size, output_size, groups=groups))
         self.sdp_attention = SDPAttention(dropout=dropout, causal=causal)
 
     def set_mask_q(self, masked_tq):

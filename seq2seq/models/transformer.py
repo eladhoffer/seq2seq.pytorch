@@ -30,6 +30,7 @@ class TransformerAttentionEncoder(nn.Module):
         self.blocks = nn.ModuleList([EncoderBlock(hidden_size,
                                                   num_heads=num_heads,
                                                   inner_linear=inner_linear,
+                                                  inner_groups=inner_groups,
                                                   layer_norm=layer_norm,
                                                   weight_norm=weight_norm,
                                                   dropout=dropout)
@@ -57,7 +58,7 @@ class TransformerAttentionEncoder(nn.Module):
 class TransformerAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
-                 num_layers=6, num_heads=8, dropout=0, inner_linear=2048, inner_groups=1, stateful=False,
+                 num_layers=6, num_heads=8, dropout=0, inner_linear=2048, inner_groups=1, stateful=False, state_dim=None,
                  mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False, embedder=None, classifier=True):
 
         super(TransformerAttentionDecoder, self).__init__()
@@ -80,7 +81,8 @@ class TransformerAttentionDecoder(nn.Module):
                                                   layer_norm=layer_norm,
                                                   weight_norm=weight_norm,
                                                   dropout=dropout,
-                                                  stateful=stateful)
+                                                  stateful=stateful,
+                                                  state_dim=state_dim)
                                      for _ in range(num_layers)
                                      ])
 

@@ -89,7 +89,7 @@ class EncoderBlock(nn.Module):
             self.lnorm2 = nn.LayerNorm(hidden_size)
         self.dropout = nn.Dropout(dropout)
         self.attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, weight_norm=weight_norm)
+            hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, groups=inner_groups, weight_norm=weight_norm)
         self.fc = nn.Sequential(wn_func(Linear(hidden_size, inner_linear, groups=inner_groups)),
                                 nn.ReLU(inplace=True),
                                 nn.Dropout(dropout),
@@ -115,7 +115,7 @@ class EncoderBlock(nn.Module):
 class DecoderBlock(nn.Module):
 
     def __init__(self, hidden_size=512, num_heads=8, inner_linear=2048, inner_groups=1,
-                 layer_norm=True, weight_norm=False, dropout=0, stateful=None):
+                 layer_norm=True, weight_norm=False, dropout=0, stateful=None, state_dim=None):
 
         super(DecoderBlock, self).__init__()
         wn_func = wn if weight_norm else lambda x: x
@@ -127,21 +127,26 @@ class DecoderBlock(nn.Module):
         self.weight_norm = weight_norm
         self.stateful = stateful
         self.attention = MultiHeadAttention(
-            hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, weight_norm=weight_norm)
+            hidden_size, hidden_size, num_heads, dropout=dropout, causal=False, groups=inner_groups, weight_norm=weight_norm)
         if stateful is not None:
             residual = False
+            stateful_hidden = hidden_size
+            if state_dim is not None:
+                stateful_hidden = state_dim
+            if stateful_hidden != hidden_size:
+                self.state_proj = nn.Linear(stateful_hidden, hidden_size)
             if stateful.endswith('_res'):
                 stateful = stateful.replace('_res', '')
                 residual = True
             if stateful in ['RNN', 'iRNN', 'LSTM', 'GRU']:
-                self.state_block = Recurrent(stateful, hidden_size, hidden_size,
+                self.state_block = Recurrent(stateful, hidden_size, stateful_hidden,
                                              dropout=dropout, residual=residual, batch_first=True)
             else:
                 self.state_block = AverageNetwork(
                     hidden_size, hidden_size, layer_norm=layer_norm, weight_norm=weight_norm, batch_first=True)
         else:
             self.masked_attention = MultiHeadAttention(
-                hidden_size, hidden_size, num_heads, dropout=dropout, causal=True, weight_norm=weight_norm)
+                hidden_size, hidden_size, num_heads, dropout=dropout, causal=True, groups=inner_groups, weight_norm=weight_norm)
 
         self.fc = nn.Sequential(wn_func(Linear(hidden_size, inner_linear, groups=inner_groups)),
                                 nn.ReLU(inplace=True),
@@ -167,6 +172,8 @@ class DecoderBlock(nn.Module):
                 x_past = torch.cat((state, x), 1)
             x, _ = self.masked_attention(x, x_past, x_past)
             state = x_past
+        if hasattr(self, 'state_proj'):
+            x = self.state_proj(x)
         x = self.dropout(x).add(res)
         x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
         res = x
