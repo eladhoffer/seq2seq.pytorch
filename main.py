@@ -59,6 +59,8 @@ parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     help='mini-batch size (default: 32)')
+parser.add_argument('--keep-checkpoints', default=5, type=int,
+                    help='checkpoints to save')
 parser.add_argument('--eval-batch-size', default=None, type=int,
                     help='mini-batch size used for evaluation (default: batch-size)')
 parser.add_argument('--world-size', default=-1, type=int,
@@ -200,6 +202,7 @@ def main(args):
         save_info={'tokenizers': train_data.tokenizers,
                    'config': args},
         regime=regime,
+        keep_checkpoints=args.keep_checkpoints,
         max_tokens=args.max_tokens,
         chunk_batch=args.chunk_batch,
         distributed=args.distributed,

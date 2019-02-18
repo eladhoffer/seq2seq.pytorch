@@ -149,7 +149,7 @@ class Seq2SeqTrainer(object):
         self.save_path = save_path
         self.save_freq = save_freq
         self.checkpoint_filename = checkpoint_filename
-        self.keep_checkpoints = keep_checkpoints
+        self.keep_checkpoints = keep_checkpoints + 1
         results_file = os.path.join(save_path, 'results')
         self.results = ResultsLog(results_file,
                                   params=save_info.get('config', None))
