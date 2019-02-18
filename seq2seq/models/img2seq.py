@@ -47,7 +47,7 @@ class Img2Seq(Seq2Seq):
             self.decoder = TransformerAttentionDecoder(**decoder)
         self.batch_first = getattr(self.decoder, 'batch_first', False)
 
-    def encode(self, x, hidden=None, devices=None):
+    def encode(self, x, hidden=None, device_ids=None):
         x = x.squeeze(0)
         x = self.encoder(x)
         return State(outputs=x, batch_first=True)

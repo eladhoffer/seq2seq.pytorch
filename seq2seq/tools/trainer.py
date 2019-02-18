@@ -409,7 +409,8 @@ class Seq2SeqTrainer(object):
 class MultiSeq2SeqTrainer(Seq2SeqTrainer):
     """class for Trainer."""
 
-    def iterate(self, src, target, training=True):
+    def iterate(self, src, target, training=True, chunk_batch=1):
+        assert chunk_batch == 1
         batch_dim = 0 if self.batch_first else 1
         time_dim = 1 if self.batch_first else 0
 
@@ -442,7 +443,7 @@ class MultiSeq2SeqTrainer(Seq2SeqTrainer):
 class Img2SeqTrainer(Seq2SeqTrainer):
     """class for Trainer."""
 
-    def iterate(self, src_img, target, training=True):
+    def iterate(self, src_img, target, training=True, chunk_batch=1):
         src = (src_img, None)
         return super(Img2SeqTrainer, self).iterate(src, target, training)
 
