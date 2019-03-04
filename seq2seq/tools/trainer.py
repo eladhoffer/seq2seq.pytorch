@@ -36,15 +36,19 @@ class AddLossModule(nn.Module):
         output = self.module(*module_inputs)
         output = output.view(-1, output.size(2))
         target = target.view(-1)
+        output = nn.functional.log_softmax(output, -1)
+        # make sure criterion is not from_logits
         loss = self.criterion(output, target).view(1, 1)
+        nll = nn.functional.nll_loss(
+            output, target, ignore_index=self.ignore_index, reduction='sum')
         if self.get_accuracy:
             _, argmax = output.max(-1)
             invalid_targets = target.eq(self.ignore_index)
             accuracy = argmax.eq(target).masked_fill_(
                 invalid_targets, 0).long().sum()
-            return loss, accuracy.view(1, 1)
+            return loss, nll, accuracy.view(1, 1)
         else:
-            return loss
+            return loss, nll
 
 
 def _chunk_tuple(seq_tuple, num_chunks, batch_first=True):
@@ -116,7 +120,7 @@ class Seq2SeqTrainer(object):
         super(Seq2SeqTrainer, self).__init__()
         self.model = model
         self.criterion = criterion or CrossEntropyLoss(
-            ignore_index=PAD, smooth_eps=label_smoothing, reduction='sum')
+            ignore_index=PAD, smooth_eps=label_smoothing, reduction='sum', from_logits=False)
 
         self.optimizer = OptimRegime(self.model, regime=regime)
         self.grad_clip = grad_clip
@@ -161,6 +165,7 @@ class Seq2SeqTrainer(object):
     def iterate(self, src_tuple_batch, target_tuple_batch, training=True, chunk_batch=1):
         loss_measure = 0
         accuracy_measure = 0
+        nll_measure = 0
         num_words = 0
         if training:
             self.optimizer.zero_grad()
@@ -194,7 +199,7 @@ class Seq2SeqTrainer(object):
             if training:
                 self.optimizer.pre_forward()
             # compute output
-            loss, accuracy = self.model_with_loss(inputs, target_labels)
+            loss, nll, accuracy = self.model_with_loss(inputs, target_labels)
 
             loss = loss.sum()
             loss_measure += float(loss / num_words)
@@ -203,6 +208,7 @@ class Seq2SeqTrainer(object):
             else:
                 loss /= target.size(batch_dim)
             accuracy_measure += float(accuracy.sum().float() / num_words)
+            nll_measure += float(nll.sum() / num_words)
 
             if training:
                 self.optimizer.pre_backward()
@@ -231,7 +237,7 @@ class Seq2SeqTrainer(object):
                     clip_grad_norm_(self.model.decoder.embedder.parameters(),
                                     self.embedding_grad_clip)
             self.optimizer.step()
-        return loss_measure, accuracy_measure, num_words
+        return loss_measure, nll_measure, accuracy_measure, num_words
 
     def _feed_data(self, data_loader, num_iterations=None, training=True, chunk_batch=1):
         if training:
@@ -261,13 +267,13 @@ class Seq2SeqTrainer(object):
                     # update optimizer according to epoch and steps
                     self.optimizer.update(self.epoch, self.training_steps)
                 # do a train/evaluate iteration
-                loss, acc, num_words = self.iterate(src, target,
-                                                    training=training,
-                                                    chunk_batch=chunk_batch)
+                loss, nll, acc, num_words = self.iterate(src, target,
+                                                         training=training,
+                                                         chunk_batch=chunk_batch)
 
                 # measure accuracy and record loss
                 losses.update(loss, num_words)
-                perplexity.update(math.exp(loss), num_words)
+                perplexity.update(math.exp(nll), num_words)
                 accuracy.update(acc, num_words)
 
                 # measure elapsed time
@@ -470,8 +476,6 @@ class NestedTrainer(Seq2SeqTrainer):
         _, target_tok = self.save_info['tokenizers'].values()
         target_words = target_tok.common_words(8188)
         self.contrast_batch = batch_nested_sequences(target_words)
-        import pdb
-        pdb.set_trace()
 
     def iterate(self, src_tuple, target_tuple, training=True):
         # limit number of tokens to avoid gpu overload
@@ -499,7 +503,7 @@ class NestedTrainer(Seq2SeqTrainer):
             target_labels = target[1:]
 
         # compute output
-        loss, accuracy = self.model_with_loss(inputs, target_labels)
+        loss, nll, accuracy = self.model_with_loss(inputs, target_labels)
 
         loss = loss.sum()
         loss_measure = float(loss / num_words)
