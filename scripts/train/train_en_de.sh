@@ -14,7 +14,7 @@ python -m torch.distributed.launch --nproc_per_node=${NUM_GPUS} main.py \
                    'encoder': {'num_layers': 3, 'bidirectional': True, 'num_bidirectional': 1, 'context_transform': 512, 'pack_inputs': False}, \
                    'decoder': {'num_layers': 3, 'concat_attention': True,\
                                'attention': {'mode': 'dot_prod', 'dropout': 0, 'output_transform': True, 'output_nonlinearity': 'relu'}}}" \
-  --data-config "{'moses_pretok': True, 'tokenization':'bpe', 'num_symbols':32000, 'shared_vocab':True}" \
+  --data-config "{'moses_pretok': True, 'tokenization':'bpe', 'tokenization_config':{'num_symbols':32000}, 'shared_vocab':True}" \
   --b 32 \
   --max-length 50 \
   --trainer Seq2SeqTrainer \
