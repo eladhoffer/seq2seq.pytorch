@@ -67,7 +67,7 @@ class TransformerAttentionEncoder(nn.Module):
 class TransformerAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6,
-                 num_heads=8, dropout=0, inner_linear=2048, inner_groups=1, prenormalized=False, stateful=False, state_dim=None,
+                 num_heads=8, dropout=0, inner_linear=2048, inner_groups=1, prenormalized=False, stateful=None, state_dim=None,
                  mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False, embedder=None, classifier=True):
 
         super(TransformerAttentionDecoder, self).__init__()

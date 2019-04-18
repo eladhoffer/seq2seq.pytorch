@@ -3,9 +3,11 @@ import torchvision.transforms as transforms
 from PIL import ImageFile
 from seq2seq.tools import batch_sequences
 from seq2seq.tools.config import EOS, BOS, PAD, LANGUAGE_TOKENS
+import warnings
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-
+warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
+warnings.filterwarnings("ignore", "Palette images with Transparency", UserWarning)
 
 def imagenet_transform(scale_size=256, input_size=224, train=True, augmentation='inception', allow_var_size=False):
     normalize = {'mean': [0.485, 0.456, 0.406],

@@ -226,7 +226,7 @@ class CaptionGenerator(Translator):
             src_img = src_img.unsqueeze(0).unsqueeze(0).to(self.device)
             seq = self.model.generate(src_img, [bos],
                                       beam_size=self.beam_size,
-                                      max_output_length=self.max_output_length,
+                                      max_sequence_length=self.max_output_length,
                                       length_normalization_factor=self.length_normalization_factor,
                                       get_attention=self.get_attention)
             # remove forced  tokens
