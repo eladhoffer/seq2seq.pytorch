@@ -51,14 +51,14 @@ class AddLossModule(nn.Module):
             return loss, nll
 
 
-def _chunk_tuple(seq_tuple, num_chunks, batch_first=True):
+def _chunk_tuple(seq_tuple, num_chunks, duplicates=1, batch_first=True):
     if num_chunks == 1:
-        return [seq_tuple]
+        return [seq_tuple] * duplicates
     seq, length = seq_tuple
     batch_dim = 0 if batch_first else 1
     chunked_length = [l.tolist()
                       for l in torch.tensor(length).chunk(num_chunks)]
-    return zip(seq.chunk(num_chunks, dim=batch_dim), chunked_length)
+    return list(zip(seq.chunk(num_chunks, dim=batch_dim), chunked_length)) * duplicates
 
 
 def _batch_max_tokens(src_tuple, target_tuple, max_tokens, batch_first=True, log=True):
@@ -107,6 +107,7 @@ class Seq2SeqTrainer(object):
                  embedding_grad_clip=None,
                  max_tokens=None,
                  chunk_batch=1,
+                 duplicates=1,
                  save_info={},
                  save_path='.',
                  checkpoint_filename='checkpoint%s.pth',
@@ -132,6 +133,7 @@ class Seq2SeqTrainer(object):
         self.dtype = dtype
         self.max_tokens = max_tokens
         self.chunk_batch = chunk_batch
+        self.duplicates = duplicates
         self.print_freq = print_freq
         self.eval_freq = eval_freq
         self.perplexity = float('inf')
@@ -171,8 +173,8 @@ class Seq2SeqTrainer(object):
             self.optimizer.zero_grad()
 
         repacked_inputs = []
-        for src_tuple, target_tuple in zip(_chunk_tuple(src_tuple_batch, chunk_batch, self.batch_first),
-                                           _chunk_tuple(target_tuple_batch, chunk_batch, self.batch_first)):
+        for src_tuple, target_tuple in zip(_chunk_tuple(src_tuple_batch, chunk_batch, self.duplicates, self.batch_first),
+                                           _chunk_tuple(target_tuple_batch, chunk_batch, self.duplicates, self.batch_first)):
             # limit number of tokens to avoid gpu overload
             if training and self.max_tokens is not None:
                 src_tuple, target_tuple = _batch_max_tokens(

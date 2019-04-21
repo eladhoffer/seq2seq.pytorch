@@ -101,6 +101,8 @@ parser.add_argument('--fixed-length', default=None, type=int,
                     help='fixed sequence length')
 parser.add_argument('--chunk-batch', default=1, type=int,
                     help='chunk batch size for multiple passes (training) -- used to fit large batches in memory')
+parser.add_argument('--duplicates', default=1, type=int,
+                    help='number of duplicates over singel example')                    
 parser.add_argument('--seed', default=123, type=int,
                     help='random seed (default: 123)')
 
@@ -205,6 +207,7 @@ def main(args):
         keep_checkpoints=args.keep_checkpoints,
         max_tokens=args.max_tokens,
         chunk_batch=args.chunk_batch,
+        duplicates=args.duplicates,
         distributed=args.distributed,
         local_rank=args.local_rank,
         device_ids=args.device_ids,
