@@ -12,7 +12,7 @@ class TransformerAttentionEncoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None,
                  num_layers=6, num_heads=8, inner_linear=2048, inner_groups=1, prenormalized=False,
-                 mask_symbol=PAD, layer_norm=True, weight_norm=False, dropout=0, embedder=None):
+                 mask_symbol=PAD, batch_first=True, layer_norm=True, weight_norm=False, dropout=0, embedder=None):
 
         super(TransformerAttentionEncoder, self).__init__()
         embedding_size = embedding_size or hidden_size
@@ -21,7 +21,7 @@ class TransformerAttentionEncoder(nn.Module):
                 torch.empty(embedding_size, hidden_size))
             nn.init.kaiming_uniform_(self.input_projection, a=math.sqrt(5))
         self.hidden_size = hidden_size
-        self.batch_first = True
+        self.batch_first = batch_first
         self.mask_symbol = mask_symbol
         self.embedder = embedder or nn.Embedding(
             vocab_size, embedding_size, padding_idx=PAD)
@@ -37,6 +37,7 @@ class TransformerAttentionEncoder(nn.Module):
                                            inner_groups=inner_groups,
                                            layer_norm=layer_norm,
                                            weight_norm=weight_norm,
+                                           batch_first=batch_first,
                                            dropout=dropout)
                                      for _ in range(num_layers)
                                      ])
@@ -51,7 +52,7 @@ class TransformerAttentionEncoder(nn.Module):
         x = self.embedder(inputs).mul_(self.scale_embedding)
         if hasattr(self, 'input_projection'):
             x = x @ self.input_projection
-        x.add_(positional_embedding(x))
+        x.add_(positional_embedding(x, batch_first=self.batch_first))
         x = self.dropout(x)
 
         for block in self.blocks:
@@ -61,13 +62,13 @@ class TransformerAttentionEncoder(nn.Module):
         if hasattr(self, 'lnorm'):
             x = self.lnorm(x)
 
-        return State(outputs=x, mask=padding_mask, batch_first=True)
+        return State(outputs=x, mask=padding_mask, batch_first=self.batch_first)
 
 
 class TransformerAttentionDecoder(nn.Module):
 
-    def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6,
-                 num_heads=8, dropout=0, inner_linear=2048, inner_groups=1, prenormalized=False, stateful=None, state_dim=None,
+    def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6, num_heads=8,
+                 batch_first=True, dropout=0, inner_linear=2048, inner_groups=1, prenormalized=False, stateful=None, state_dim=None,
                  mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False, embedder=None, classifier=True):
 
         super(TransformerAttentionDecoder, self).__init__()
@@ -76,7 +77,7 @@ class TransformerAttentionDecoder(nn.Module):
             self.input_projection = nn.Parameter(
                 torch.empty(embedding_size, hidden_size))
             nn.init.kaiming_uniform_(self.input_projection, a=math.sqrt(5))
-        self.batch_first = True
+        self.batch_first = batch_first
         self.mask_symbol = mask_symbol
         self.embedder = embedder or nn.Embedding(
             vocab_size, embedding_size, padding_idx=PAD)
@@ -94,6 +95,7 @@ class TransformerAttentionDecoder(nn.Module):
                                            layer_norm=layer_norm,
                                            weight_norm=weight_norm,
                                            dropout=dropout,
+                                           batch_first=batch_first,
                                            stateful=stateful,
                                            state_dim=state_dim)
                                      for _ in range(num_layers)
@@ -125,7 +127,9 @@ class TransformerAttentionDecoder(nn.Module):
             time_step = self.time_step
         else:
             block_state = state.inputs
-            time_step = 0 if block_state is None else block_state[0].size(1)
+            time_dim = 1 if self.batch_first else 0
+            time_step = 0 if block_state is None else \
+                block_state[0][0].size(time_dim)
 
         if block_state is None:
             block_state = [None] * len(self.blocks)
@@ -137,7 +141,8 @@ class TransformerAttentionDecoder(nn.Module):
         x = self.embedder(inputs).mul_(self.scale_embedding)
         if hasattr(self, 'input_projection'):
             x = x @ self.input_projection
-        x.add_(positional_embedding(x, offset=time_step))
+        x.add_(positional_embedding(
+            x, batch_first=self.batch_first, offset=time_step))
         x = self.dropout(x)
 
         attention_scores = []
@@ -173,7 +178,7 @@ class Transformer(Seq2Seq):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6, num_heads=8,
                  inner_linear=2048, inner_groups=1, dropout=0.1, prenormalized=False, tie_embedding=True,
-                 encoder=None, decoder=None, layer_norm=True, weight_norm=False, stateful=None):
+                 encoder=None, decoder=None, layer_norm=True, weight_norm=False, batch_first=True, stateful=None):
         super(Transformer, self).__init__()
         embedding_size = embedding_size or hidden_size
         # keeping encoder, decoder None will result with default configuration
@@ -192,6 +197,7 @@ class Transformer(Seq2Seq):
         encoder.setdefault('inner_linear', inner_linear)
         encoder.setdefault('inner_groups', inner_groups)
         encoder.setdefault('prenormalized', prenormalized)
+        encoder.setdefault('batch_first', batch_first)
 
         decoder.setdefault('embedding_size', embedding_size)
         decoder.setdefault('hidden_size', hidden_size)
@@ -204,6 +210,7 @@ class Transformer(Seq2Seq):
         decoder.setdefault('dropout', dropout)
         decoder.setdefault('inner_linear', inner_linear)
         decoder.setdefault('inner_groups', inner_groups)
+        decoder.setdefault('batch_first', batch_first)
         decoder.setdefault('prenormalized', prenormalized)
         decoder.setdefault('stateful', stateful)
 
@@ -214,7 +221,7 @@ class Transformer(Seq2Seq):
             decoder.setdefault('embedder', embedder)
             decoder['classifier'] = False
 
-        self.batch_first = True
+        self.batch_first = batch_first
         self.encoder = TransformerAttentionEncoder(**encoder)
         self.decoder = TransformerAttentionDecoder(**decoder)
 

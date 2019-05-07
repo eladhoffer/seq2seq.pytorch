@@ -171,28 +171,32 @@ class SDPAttention(nn.Module):
                 mask_q = self.mask_q.unsqueeze(2).expand(b, t_q, t_k)
                 mask = mask_q if mask is None else mask | mask_q
         if mask is not None:
-            qk.masked_fill_(mask, -1e9)
+            qk.masked_fill_(mask, float('-inf'))
 
-        sm_qk = F.softmax(qk, dim=2)
+        sm_qk = F.softmax(qk, dim=2,
+                          dtype=torch.float32 if qk.dtype == torch.float16 else qk.dtype)
         sm_qk = self.dropout(sm_qk)
         return torch.bmm(sm_qk, v), sm_qk  # b x t_q x dim_v
 
 
-class MultiHeadAttention(nn.Module):
+class MultiHeadAttentionV2(nn.Module):
     """
     Scaled Dot-Product Attention
     """
 
-    def __init__(self, input_size, output_size, num_heads, weight_norm=False, groups=1, dropout=0, causal=False):
-        super(MultiHeadAttention, self).__init__()
+    def __init__(self, input_size, output_size, num_heads, weight_norm=False, groups=1, dropout=0, causal=False, add_bias_kv=False):
+        super(MultiHeadAttentionV2, self).__init__()
         assert(input_size % num_heads == 0)
         wn_func = wn if weight_norm else lambda x: x
         self.input_size = input_size
         self.output_size = output_size
         self.num_heads = num_heads
-        self.linear_q = wn_func(Linear(input_size, input_size, groups=groups))
-        self.linear_k = wn_func(Linear(input_size, input_size, groups=groups))
-        self.linear_v = wn_func(Linear(input_size, input_size, groups=groups))
+        self.linear_q = wn_func(
+            Linear(input_size, input_size, bias=False, groups=groups))
+        self.linear_k = wn_func(
+            Linear(input_size, input_size, bias=add_bias_kv, groups=groups))
+        self.linear_v = wn_func(
+            Linear(input_size, input_size, bias=add_bias_kv, groups=groups))
         self.linear_out = wn_func(
             Linear(input_size, output_size, groups=groups))
         self.sdp_attention = SDPAttention(dropout=dropout, causal=causal)
@@ -226,3 +230,58 @@ class MultiHeadAttention(nn.Module):
         output = torch.cat(output, 2)
 
         return self.linear_out(output), attention_scores
+
+
+class MultiHeadAttention(nn.MultiheadAttention):
+    """
+    Scaled Dot-Product Attention
+    """
+
+    def __init__(self, input_size, output_size, num_heads, dropout=0, causal=False, bias=True, add_bias_kv=False, add_zero_attn=False, batch_first=True, groups=None, weight_norm=None):
+        super(MultiHeadAttention, self).__init__(input_size, num_heads, dropout=dropout,
+                                                 bias=bias, add_bias_kv=add_bias_kv, add_zero_attn=add_zero_attn)
+        assert(input_size % num_heads == 0)
+        assert(input_size == output_size)
+        self.causal = causal
+        self.batch_first = batch_first
+
+    def set_mask_q(self, masked_tq):
+        self.mask_q = masked_tq
+
+    def set_mask_k(self, masked_tk):
+        # applies a mask of b x tk length
+        self.mask_k = masked_tk
+
+    def forward(self, query, key, value, incremental_state=None, need_weights=False, static_kv=False):
+        key_padding_mask = attn_mask = None
+        time_dim = 1 if self.batch_first else 0
+        t_q = query.size(time_dim)
+        t_k = key.size(time_dim)
+        with torch.no_grad():
+            if self.causal and t_q > 1:
+                attn_mask = torch.full((t_q, t_k), float('-inf'),
+                                       device=query.device, dtype=query.dtype).triu_(1)
+            key_padding_mask = self.mask_k
+
+        if self.batch_first:
+            qkv_same = query.data_ptr() == key.data_ptr() == value.data_ptr()
+            kv_same = key.data_ptr() == value.data_ptr()
+            key = key.transpose(0, 1)
+            if kv_same:
+                value = key
+            else:
+                value = value.transpose(0, 1)
+            if qkv_same:
+                query = key
+            else:
+                query = query.transpose(0, 1)
+        elif key_padding_mask is not None:
+            key_padding_mask.t()
+
+
+        attn_output, attn_output_weights = super(
+            MultiHeadAttention, self).forward(query, key, value, key_padding_mask=key_padding_mask, attn_mask=attn_mask,
+                                              incremental_state=incremental_state, need_weights=need_weights, static_kv=static_kv)
+        if self.batch_first:
+            attn_output = attn_output.transpose(0, 1)
+        return attn_output, attn_output_weights

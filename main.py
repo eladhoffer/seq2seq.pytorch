@@ -13,7 +13,7 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from seq2seq import models, datasets
 from seq2seq.tools.utils.log import setup_logging
-from seq2seq.tools.utils.misc import set_global_seeds
+from seq2seq.tools.utils.misc import set_global_seeds, torch_dtypes
 from seq2seq.tools.config import PAD
 import seq2seq.tools.trainer as trainers
 
@@ -49,8 +49,10 @@ parser.add_argument('--trainer', metavar='TRAINER', default='Seq2SeqTrainer',
                     help='trainer used: ' +
                     ' | '.join(trainers.__all__) +
                     ' (default: Seq2SeqTrainer)')
-parser.add_argument('--dtype', default='torch.float',
-                    help='type of tensor - e.g torch.cuda.HalfTensor')
+parser.add_argument('--dtype', default='float',
+                    help='type of tensor: ' +
+                    ' | '.join(torch_dtypes.keys()) +
+                    ' (default: float)')
 parser.add_argument('-j', '--workers', default=8, type=int,
                     help='number of data loading workers (default: 8)')
 parser.add_argument('--epochs', default=100, type=int,
@@ -89,6 +91,8 @@ parser.add_argument('--grad-clip', default='-1.', type=str,
                     help='maximum grad norm value. negative for off')
 parser.add_argument('--embedding-grad-clip', default=None, type=float,
                     help='maximum embedding grad norm value')
+parser.add_argument('--loss-scale', default=1, type=float,
+                    help='loss scale for mixed precision training.')
 parser.add_argument('--label-smoothing', default=0, type=float,
                     help='label smoothing coefficient - default 0')
 parser.add_argument('--uniform-init', default=None, type=float,
@@ -102,7 +106,7 @@ parser.add_argument('--fixed-length', default=None, type=int,
 parser.add_argument('--chunk-batch', default=1, type=int,
                     help='chunk batch size for multiple passes (training) -- used to fit large batches in memory')
 parser.add_argument('--duplicates', default=1, type=int,
-                    help='number of duplicates over singel example')                    
+                    help='number of duplicates over singel example')
 parser.add_argument('--seed', default=123, type=int,
                     help='random seed (default: 123)')
 
@@ -136,6 +140,7 @@ def main(args):
     logging.debug("run arguments: %s", args)
 
     device = args.device
+    dtype = torch_dtypes.get(args.dtype)
     if 'cuda' in args.device:
         main_gpu = 0
         if isinstance(args.device_ids, tuple):
@@ -168,7 +173,7 @@ def main(args):
 
     model = getattr(models, args.model)(**model_config)
 
-    model.to(device)
+    model.to(device, dtype=dtype)
     batch_first = getattr(model, 'batch_first', False)
 
     logging.info(model)
@@ -213,6 +218,7 @@ def main(args):
         device_ids=args.device_ids,
         device=device,
         dtype=args.dtype,
+        loss_scale=args.loss_scale,
         print_freq=args.print_freq,
         save_freq=args.save_freq,
         eval_freq=args.eval_freq)

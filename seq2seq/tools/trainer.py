@@ -116,6 +116,7 @@ class Seq2SeqTrainer(object):
                  distributed=False,
                  local_rank=0,
                  dtype=torch.float,
+                 loss_scale=1,
                  device_ids=None,
                  device="cuda"):
         super(Seq2SeqTrainer, self).__init__()
@@ -123,7 +124,8 @@ class Seq2SeqTrainer(object):
         self.criterion = criterion or CrossEntropyLoss(
             ignore_index=PAD, smooth_eps=label_smoothing, reduction='sum', from_logits=False)
 
-        self.optimizer = OptimRegime(self.model, regime=regime)
+        self.optimizer = OptimRegime(
+            self.model, regime=regime, use_float_copy=dtype == torch.float16)
         self.grad_clip = grad_clip
         self.embedding_grad_clip = embedding_grad_clip
         self.epoch = 0
@@ -131,6 +133,7 @@ class Seq2SeqTrainer(object):
         self.save_info = save_info
         self.device = device
         self.dtype = dtype
+        self.loss_scale = loss_scale
         self.max_tokens = max_tokens
         self.chunk_batch = chunk_batch
         self.duplicates = duplicates
@@ -214,8 +217,14 @@ class Seq2SeqTrainer(object):
 
             if training:
                 self.optimizer.pre_backward()
+                if self.loss_scale > 1:
+                    loss *= self.loss_scale
                 # compute gradient and do SGD step
                 loss.backward()
+
+                if self.loss_scale > 1:
+                    for p in self.model.parameters():
+                        p.grad.data.div_(self.loss_scale)
 
         if training:
             if self.grad_clip is not None:
