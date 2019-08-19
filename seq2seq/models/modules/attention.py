@@ -252,7 +252,7 @@ class MultiHeadAttention(nn.MultiheadAttention):
         # applies a mask of b x tk length
         self.mask_k = masked_tk
 
-    def forward(self, query, key, value, incremental_state=None, need_weights=False, static_kv=False):
+    def forward(self, query, key, value, need_weights=False, static_kv=False):
         key_padding_mask = attn_mask = None
         time_dim = 1 if self.batch_first else 0
         t_q = query.size(time_dim)
@@ -280,8 +280,7 @@ class MultiHeadAttention(nn.MultiheadAttention):
 
 
         attn_output, attn_output_weights = super(
-            MultiHeadAttention, self).forward(query, key, value, key_padding_mask=key_padding_mask, attn_mask=attn_mask,
-                                              incremental_state=incremental_state, need_weights=need_weights, static_kv=static_kv)
+            MultiHeadAttention, self).forward(query, key, value, key_padding_mask=key_padding_mask, attn_mask=attn_mask, need_weights=need_weights)
         if self.batch_first:
             attn_output = attn_output.transpose(0, 1)
         return attn_output, attn_output_weights
