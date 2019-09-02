@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import argparse
 import os
+import json
 import logging
 from ast import literal_eval
 from datetime import datetime
@@ -19,6 +20,8 @@ import seq2seq.tools.trainer as trainers
 
 
 parser = argparse.ArgumentParser(description='PyTorch Seq2Seq Training')
+parser.add_argument('--config-file', default=None,
+                    help='json configuration file')
 parser.add_argument('--dataset', metavar='DATASET', default='WMT16_de_en',
                     choices=datasets.__all__,
                     help='dataset used: ' +
@@ -71,6 +74,8 @@ parser.add_argument('--local_rank', default=-1, type=int,
                     help='rank of distributed processes')
 parser.add_argument('--dist-init', default='env://', type=str,
                     help='init used to set up distributed training')
+parser.add_argument('--target-forcing', default='teacher', type=str,
+                    help='decoder input-to-output forcing')
 parser.add_argument('--dist-backend', default='nccl', type=str,
                     help='distributed backend')
 parser.add_argument('--optimization-config',
@@ -109,6 +114,10 @@ parser.add_argument('--duplicates', default=1, type=int,
                     help='number of duplicates over singel example')
 parser.add_argument('--seed', default=123, type=int,
                     help='random seed (default: 123)')
+parser.add_argument('--tensorwatch', action='store_true', default=False,
+                    help='set tensorwatch logging')
+parser.add_argument('--tensorwatch-port', default=0, type=int,
+                    help='set tensorwatch port')
 
 
 def main(args):
@@ -209,6 +218,7 @@ def main(args):
         save_info={'tokenizers': train_data.tokenizers,
                    'config': args},
         regime=regime,
+        target_forcing=args.target_forcing,
         keep_checkpoints=args.keep_checkpoints,
         max_tokens=args.max_tokens,
         chunk_batch=args.chunk_batch,
@@ -225,6 +235,9 @@ def main(args):
 
     trainer_options['model'] = model
     trainer = getattr(trainers, args.trainer)(**trainer_options)
+    if args.tensorwatch:
+        trainer.set_watcher(filename=os.path.abspath(os.path.join(save_path, 'tensorwatch.log')),
+                            port=args.tensorwatch_port)
 
     def num_parameters(model):
         return 0 if model is None else sum([l.nelement() for l in model.parameters()])
@@ -264,4 +277,9 @@ def main(args):
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    if args.config_file is not None:
+        with open(args.config_file) as f:
+            config_dict = json.loads(f.read())
+        parser.set_defaults(**config_dict)
+        args = parser.parse_args()
     main(args)

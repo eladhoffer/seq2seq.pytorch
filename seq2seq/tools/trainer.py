@@ -15,8 +15,13 @@ from .utils.optim import OptimRegime
 from .utils.meters import AverageMeter
 from .utils.cross_entropy import CrossEntropyLoss
 
-from .config import PAD
+from .config import PAD, UNK, EOS, BOS
 from . import batch_nested_sequences
+try:
+    import tensorwatch
+    _TENSORWATCH_AVAILABLE = True
+except ImportError:
+    _TENSORWATCH_AVAILABLE = False
 
 __all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer',
            'Img2SeqTrainer', 'NestedTrainer']
@@ -25,11 +30,10 @@ __all__ = ['Seq2SeqTrainer', 'MultiSeq2SeqTrainer',
 class AddLossModule(nn.Module):
     """adds a loss to module for easy parallelization"""
 
-    def __init__(self, module, criterion, get_accuracy=True, ignore_index=PAD):
+    def __init__(self, module, criterion, ignore_index=PAD):
         super(AddLossModule, self).__init__()
         self.module = module
         self.criterion = criterion
-        self.get_accuracy = get_accuracy
         self.ignore_index = ignore_index
 
     def forward(self, module_inputs, target):
@@ -39,16 +43,16 @@ class AddLossModule(nn.Module):
         output = nn.functional.log_softmax(output, -1)
         # make sure criterion is not from_logits
         loss = self.criterion(output, target).view(1, 1)
-        nll = nn.functional.nll_loss(
-            output, target, ignore_index=self.ignore_index, reduction='sum')
-        if self.get_accuracy:
-            _, argmax = output.max(-1)
-            invalid_targets = target.eq(self.ignore_index)
-            accuracy = argmax.eq(target).masked_fill_(
-                invalid_targets, 0).long().sum()
-            return loss, nll, accuracy.view(1, 1)
-        else:
-            return loss, nll
+        nll = nn.functional.nll_loss(output, target,
+                                     ignore_index=self.ignore_index,
+                                     reduction='sum')
+
+        _, argmax = output.max(-1)
+        invalid_targets = target.eq(self.ignore_index)
+        accuracy = argmax.eq(target).masked_fill_(
+            invalid_targets, 0).long().sum()
+
+        return loss, nll, accuracy.view(1, 1)
 
 
 def _chunk_tuple(seq_tuple, num_chunks, duplicates=1, batch_first=True):
@@ -91,6 +95,34 @@ def _batch_max_tokens(src_tuple, target_tuple, max_tokens, batch_first=True, log
     return src_tuple, target_tuple
 
 
+class DecodedInputTargets(object):
+    def __init__(self, batch_first=True):
+        self.batch_first = batch_first
+        self.training = True
+
+    def train(self, enable=True):
+        self.training = enable
+
+    def eval(self):
+        self.training = False
+
+    def __call__(self, src, sequence):
+        target = sequence
+        return src, sequence, target
+
+
+class TeacherForcing(DecodedInputTargets):
+
+    def __call__(self, src, sequence):
+        if self.batch_first:
+            inputs = sequence[:, :-1]
+            targets = sequence[:, 1:].contiguous()
+        else:
+            inputs = sequence[:-1]
+            targets = sequence[1:]
+        return src, inputs, targets
+
+
 class Seq2SeqTrainer(object):
     """class for Trainer.
 
@@ -100,6 +132,7 @@ class Seq2SeqTrainer(object):
     def __init__(self, model, regime=None,
                  criterion=None,
                  label_smoothing=0,
+                 target_forcing='teacher',
                  print_freq=10,
                  eval_freq=1000,
                  save_freq=1000,
@@ -126,6 +159,11 @@ class Seq2SeqTrainer(object):
 
         self.optimizer = OptimRegime(
             self.model, regime=regime, use_float_copy=dtype == torch.float16)
+
+        if target_forcing == 'teacher':
+            self.target_forcing = TeacherForcing(batch_first=self.batch_first)
+        else:
+            self.target_forcing = DecodedInputTargets()
         self.grad_clip = grad_clip
         self.embedding_grad_clip = embedding_grad_clip
         self.epoch = 0
@@ -162,6 +200,8 @@ class Seq2SeqTrainer(object):
         results_file = os.path.join(save_path, 'results')
         self.results = ResultsLog(results_file,
                                   params=save_info.get('config', None))
+        self.watcher = None
+        self.streams = {}
 
     @property
     def batch_first(self):
@@ -172,8 +212,12 @@ class Seq2SeqTrainer(object):
         accuracy_measure = 0
         nll_measure = 0
         num_words = 0
+        batch_dim = 0 if self.batch_first else 1
         if training:
             self.optimizer.zero_grad()
+            self.target_forcing.train()
+        else:
+            self.target_forcing.eval()
 
         repacked_inputs = []
         for src_tuple, target_tuple in zip(_chunk_tuple(src_tuple_batch, chunk_batch, self.duplicates, self.batch_first),
@@ -184,36 +228,28 @@ class Seq2SeqTrainer(object):
                     src_tuple, target_tuple, self.max_tokens,
                     batch_first=self.batch_first)
             src, _ = src_tuple
-            target, target_length = target_tuple
-            batch_dim = 0 if self.batch_first else 1
-            num_words += sum(target_length) - target.size(batch_dim)
-            repacked_inputs.append((src, target))
+            target, _ = target_tuple
+            encoded, decoded, target = self.target_forcing(src, target)
+            num_words += int(target.ne(PAD).sum())
+            repacked_inputs.append((encoded, decoded, target))
 
-        for src, target in repacked_inputs:
+        for encoded, decoded, target in repacked_inputs:
             if not isinstance(self.model_with_loss, DataParallel):
-                src = src.to(self.device)
+                encoded = encoded.to(self.device)
                 target = target.to(self.device)
-
-            if self.batch_first:
-                inputs = (src, target[:, :-1])
-                target_labels = target[:, 1:].contiguous()
-            else:
-                inputs = (src, target[:-1])
-                target_labels = target[1:]
+                decoded = decoded.to(self.device)
 
             if training:
                 self.optimizer.pre_forward()
             # compute output
-            loss, nll, accuracy = self.model_with_loss(inputs, target_labels)
-
+            inputs = (encoded, decoded)
+            loss, nll, accuracy = self.model_with_loss(inputs, target)
             loss = loss.sum()
-            loss_measure += float(loss / num_words)
+
             if self.avg_loss_time:
                 loss /= num_words
             else:
-                loss /= target.size(batch_dim)
-            accuracy_measure += float(accuracy.sum().float() / num_words)
-            nll_measure += float(nll.sum() / num_words)
+                loss /= (target.size(batch_dim) * len(repacked_inputs))
 
             if training:
                 self.optimizer.pre_backward()
@@ -225,6 +261,10 @@ class Seq2SeqTrainer(object):
                 if self.loss_scale > 1:
                     for p in self.model.parameters():
                         p.grad.data.div_(self.loss_scale)
+
+            accuracy_measure += float(accuracy.sum().float() / num_words)
+            nll_measure += float(nll.sum() / num_words)
+            loss_measure += float(loss)
 
         if training:
             if self.grad_clip is not None:
@@ -256,17 +296,19 @@ class Seq2SeqTrainer(object):
             assert self.optimizer is not None
 
         num_iterations = num_iterations or len(data_loader) - 1
-        batch_time = AverageMeter()
-        data_time = AverageMeter()
-        tok_time = AverageMeter()
-        losses = AverageMeter()
-        perplexity = AverageMeter()
-        accuracy = AverageMeter()
+        meters = {
+            'batch': AverageMeter(),
+            'data': AverageMeter(),
+            'tokens': AverageMeter(),
+            'loss': AverageMeter(),
+            'perplexity': AverageMeter(),
+            'accuracy': AverageMeter()
+        }
 
         end = time.time()
         for i, (src, target) in enumerate(data_loader):
             # measure data loading time
-            data_time.update(time.time() - end)
+            meters['data'].update(time.time() - end)
 
             try:
                 if training:
@@ -283,14 +325,14 @@ class Seq2SeqTrainer(object):
                                                          chunk_batch=chunk_batch)
 
                 # measure accuracy and record loss
-                losses.update(loss, num_words)
-                perplexity.update(math.exp(nll), num_words)
-                accuracy.update(acc, num_words)
+                meters['loss'].update(loss, num_words)
+                meters['perplexity'].update(math.exp(nll), num_words)
+                meters['accuracy'].update(acc, num_words)
 
                 # measure elapsed time
                 elapsed = time.time() - end
-                batch_time.update(elapsed)
-                tok_time.update(num_words / elapsed, num_words)
+                meters['batch'].update(elapsed)
+                meters['tokens'].update(num_words / elapsed, num_words)
 
                 end = time.time()
             except RuntimeError as err:
@@ -303,27 +345,40 @@ class Seq2SeqTrainer(object):
 
             last_iteration = (i == len(data_loader) - 1)
             if i > 0 or last_iteration:
+                if hasattr(self.target_forcing, 'keep_prob'):
+                    prob = self.target_forcing.keep_prob
+                    self.target_forcing.keep_prob = max(0., prob - 1e-5)
+
                 if i % self.print_freq == 0 or last_iteration:
+                    if hasattr(self.target_forcing, 'keep_prob'):
+                        logging.info('keep-prob = %s' %
+                                     self.target_forcing.keep_prob)
                     logging.info('{phase} - Epoch: [{0}][{1}/{2}]\t'
-                                 'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                                 'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                                 'Tok/sec {tok_time.val:.3f} ({tok_time.avg:.3f})\t'
-                                 'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                                 'Accuracy {acc.val:.4f} ({acc.avg:.4f})\t'
-                                 'Perplexity {perplexity.val:.4f} ({perplexity.avg:.4f})'.format(
+                                 'Time {meters[batch].val:.3f} ({meters[batch].avg:.3f})\t'
+                                 'Data {meters[data].val:.3f} ({meters[data].avg:.3f})\t'
+                                 'Tok/sec {meters[tokens].val:.3f} ({meters[tokens].avg:.3f})\t'
+                                 'Loss {meters[loss].val:.4f} ({meters[loss].avg:.4f})\t'
+                                 'Accuracy {meters[accuracy].val:.4f} ({meters[accuracy].avg:.4f})\t'
+                                 'Perplexity {meters[perplexity].val:.4f} ({meters[perplexity].avg:.4f})'.format(
                                      int(self.epoch), i, len(data_loader),
                                      phase='TRAINING' if training else 'EVALUATING',
-                                     batch_time=batch_time, data_time=data_time, tok_time=tok_time,
-                                     loss=losses, acc=accuracy, perplexity=perplexity))
-
+                                     meters=meters))
+                    self.observe(trainer=self,
+                                 model=self.model,
+                                 optimizer=self.optimizer,
+                                 data=(src, target))
+                    self.stream_meters(meters,
+                                       prefix='train' if training else 'eval')
+                    if training:
+                        self.write_stream('lr',
+                                          (self.training_steps, self.optimizer.get_lr()[0]))
                 if training and (i % self.save_freq == 0 or last_iteration):
                     self.save(identifier=next(counter))
 
                 if i % num_iterations == 0 or last_iteration:
-                    yield {'loss': losses.avg, 'accuracy': accuracy.avg, 'perplexity': perplexity.avg}
-                    losses.reset()
-                    accuracy.reset()
-                    perplexity.reset()
+                    yield dict([(name, meter.avg) for name, meter in meters.items()])
+                    for meter in meters.values():
+                        meter.reset()
 
     def optimize(self, data_loader):
         # switch to train mode
@@ -421,6 +476,60 @@ class Seq2SeqTrainer(object):
         if save_all:
             shutil.copyfile(filename, os.path.join(
                 self.save_path, 'checkpoint_epoch_%s.pth' % self.epoch))
+
+    ###### tensorwatch methods to enable training-time logging ######
+
+    def set_watcher(self, filename, port=0):
+        if not _TENSORWATCH_AVAILABLE:
+            return False
+        if self.distributed and self.local_rank > 0:
+            return False
+        self.watcher = tensorwatch.Watcher(filename=filename, port=port)
+        # default streams
+        self._default_streams()
+        self.watcher.make_notebook()
+        return True
+
+    def get_stream(self, name, **kwargs):
+        if self.watcher is None:
+            return None
+        if name not in self.streams.keys():
+            self.streams[name] = self.watcher.create_stream(name=name,
+                                                            **kwargs)
+        return self.streams[name]
+
+    def write_stream(self, name, values):
+        stream = self.get_stream(name)
+        if stream is not None:
+            stream.write(values)
+
+    def stream_meters(self, meters_dict, prefix=None):
+        if self.watcher is None:
+            return False
+        for name, value in meters_dict.items():
+            if prefix is not None:
+                name = '_'.join([prefix, name])
+            value = value.val
+            stream = self.get_stream(name)
+            if stream is None:
+                continue
+            stream.write((self.training_steps, value))
+        return True
+
+    def observe(self, **kwargs):
+        if self.watcher is None:
+            return False
+        self.watcher.observe(**kwargs)
+        return True
+
+    def _default_streams(self):
+        self.get_stream('train_loss')
+        self.get_stream('eval_loss')
+        self.get_stream('train_accuracy')
+        self.get_stream('eval_accuracy')
+        self.get_stream('train_perplexity')
+        self.get_stream('eval_perplexity')
+        self.get_stream('lr')
 
 
 class MultiSeq2SeqTrainer(Seq2SeqTrainer):
