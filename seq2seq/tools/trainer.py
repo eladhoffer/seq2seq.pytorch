@@ -49,8 +49,8 @@ class AddLossModule(nn.Module):
 
         _, argmax = output.max(-1)
         invalid_targets = target.eq(self.ignore_index)
-        accuracy = argmax.eq(target).masked_fill_(
-            invalid_targets, 0).long().sum()
+        accuracy = argmax.eq(target).masked_fill_(invalid_targets, 0)\
+            .long().sum()
 
         return loss, nll, accuracy.view(1, 1)
 
@@ -59,10 +59,15 @@ def _chunk_tuple(seq_tuple, num_chunks, duplicates=1, batch_first=True):
     if num_chunks == 1:
         return [seq_tuple] * duplicates
     seq, length = seq_tuple
-    batch_dim = 0 if batch_first else 1
+    batch_dim, time_dim = (0, 1) if batch_first else (1, 0)
     chunked_length = [l.tolist()
                       for l in torch.tensor(length).chunk(num_chunks)]
-    return list(zip(seq.chunk(num_chunks, dim=batch_dim), chunked_length)) * duplicates
+    chunks = []
+    for chunk, chunk_length in zip(seq.chunk(num_chunks, dim=batch_dim), chunked_length):
+        # chunk = chunk.narrow(time_dim, 0, max(chunk_length))
+        chunks.append((chunk, chunk_length))
+    return chunks * duplicates
+
 
 
 def _batch_max_tokens(src_tuple, target_tuple, max_tokens, batch_first=True, log=True):
@@ -98,6 +103,7 @@ def _batch_max_tokens(src_tuple, target_tuple, max_tokens, batch_first=True, log
 class DecodedInputTargets(object):
     def __init__(self, batch_first=True):
         self.batch_first = batch_first
+        self.time_dim = 1 if batch_first else 0
         self.training = True
 
     def train(self, enable=True):
@@ -106,20 +112,23 @@ class DecodedInputTargets(object):
     def eval(self):
         self.training = False
 
-    def __call__(self, src, sequence):
-        target = sequence
-        return src, sequence, target
+    def __call__(self, src_pair, target_pair):
+        src, src_len = src_pair
+        target, target_len = target_pair
+        return src, target, target
 
 
 class TeacherForcing(DecodedInputTargets):
 
-    def __call__(self, src, sequence):
+    def __call__(self, src_pair, target_pair):
+        src, inputs, targets = super(
+            TeacherForcing, self).__call__(src_pair, target_pair)
         if self.batch_first:
-            inputs = sequence[:, :-1]
-            targets = sequence[:, 1:].contiguous()
+            inputs = inputs[:, :-1]
+            targets = targets[:, 1:].contiguous()
         else:
-            inputs = sequence[:-1]
-            targets = sequence[1:]
+            inputs = inputs[:-1]
+            targets = targets[1:]
         return src, inputs, targets
 
 
@@ -227,9 +236,8 @@ class Seq2SeqTrainer(object):
                 src_tuple, target_tuple = _batch_max_tokens(
                     src_tuple, target_tuple, self.max_tokens,
                     batch_first=self.batch_first)
-            src, _ = src_tuple
-            target, _ = target_tuple
-            encoded, decoded, target = self.target_forcing(src, target)
+            encoded, decoded, target = self.target_forcing(
+                src_tuple, target_tuple)
             num_words += int(target.ne(PAD).sum())
             repacked_inputs.append((encoded, decoded, target))
 
@@ -445,7 +453,7 @@ class Seq2SeqTrainer(object):
 
     def load(self, filename):
         if os.path.isfile(filename):
-            checkpoint = torch.load(filename)
+            checkpoint = torch.load(filename, map_location='cpu')
             self.model.load_state_dict(checkpoint['state_dict'])
             self.epoch = checkpoint['epoch']
             self.training_steps = checkpoint['training_steps']

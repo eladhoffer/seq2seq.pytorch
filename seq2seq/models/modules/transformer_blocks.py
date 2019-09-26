@@ -8,31 +8,44 @@ from .linear import Linear
 from .recurrent import Recurrent
 
 
-def positional_embedding(x, min_timescale=1.0, max_timescale=1.0e4, offset=0, batch_first=True):
-    if batch_first:
-        batch, length, channels = list(x.size())
-    else:
-        length, batch,  channels = list(x.size())
+def positional_embedding(position_or_length, channels, min_timescale=1.0, max_timescale=1.0e4, offset=0, device=None):
     assert (channels % 2 == 0)
     num_timescales = channels // 2
     log_timescale_increment = (
         math.log(float(max_timescale) / float(min_timescale)) /
         (float(num_timescales) - 1.))
-    position = torch.arange(offset, offset + length,
-                            device=x.device, dtype=torch.float)
+    if torch.is_tensor(position_or_length):
+        position = position_or_length + offset
+        device = device or position_or_length.device
+    else:  # length of tensor given
+        position = torch.arange(offset, offset + position_or_length,
+                                device=device, dtype=torch.long)
     inv_timescales = torch.arange(0, num_timescales,
-                                  device=x.device, dtype=torch.float)
+                                  device=device, dtype=torch.float)
 
     inv_timescales.mul_(-log_timescale_increment).exp_().mul_(min_timescale)
-    scaled_time = position.unsqueeze(1) * inv_timescales.unsqueeze(0)
+    dims = position.dim() - 1
+    inv_timescales = inv_timescales.view(*([1]*dims), -1)
+    scaled_time = position.float().unsqueeze(-1) * inv_timescales
     # scaled time is now length x num_timescales
     # length x channels
-    signal = torch.cat(
-        [scaled_time.sin(), scaled_time.cos()], 1).to(dtype=x.dtype)
-    if batch_first:
-        return signal.unsqueeze(0).expand(batch, length, channels)
-    else:
-        return signal.unsqueeze(1).expand(length, batch, channels)
+    signal = torch.cat([scaled_time.sin(), scaled_time.cos()], 1)
+    return signal
+
+
+class PositionalEmbedding(nn.Module):
+
+    def __init__(self, channels, min_timescale=1.0, max_timescale=1.0e4):
+        super(PositionalEmbedding, self).__init__()
+        self.min_timescale = min_timescale
+        self.max_timescale = max_timescale
+        self.channels = channels
+
+    def forward(self, x):
+        position = x if x.dim() == 1 else x.contiguous().view(-1)
+        emb = positional_embedding(position, self.channels, device=x.device,
+                                   min_timescale=self.min_timescale, max_timescale=self.max_timescale)
+        return emb.view(*x.shape, -1)
 
 
 class AverageNetwork(nn.Module):
@@ -141,7 +154,7 @@ class EncoderBlockPreNorm(EncoderBlock):
 class DecoderBlock(nn.Module):
 
     def __init__(self, hidden_size=512, num_heads=8, inner_linear=2048, inner_groups=1, batch_first=True,
-                 layer_norm=True, weight_norm=False, dropout=0, stateful=None, state_dim=None):
+                 layer_norm=True, weight_norm=False, dropout=0, stateful=None, state_dim=None, causal=True):
 
         super(DecoderBlock, self).__init__()
         wn_func = wn if weight_norm else lambda x: x
@@ -175,7 +188,7 @@ class DecoderBlock(nn.Module):
         else:
             self.masked_attention = MultiHeadAttention(
                 hidden_size, hidden_size, num_heads, dropout=dropout,
-                batch_first=batch_first, causal=True, groups=inner_groups, weight_norm=weight_norm)
+                batch_first=batch_first, causal=causal, groups=inner_groups, weight_norm=weight_norm)
 
         self.fc = nn.Sequential(wn_func(Linear(hidden_size, inner_linear, groups=inner_groups)),
                                 nn.ReLU(inplace=True),
@@ -202,7 +215,8 @@ class DecoderBlock(nn.Module):
                 time_dim = 1 if self.batch_first else 0
                 x_past, mask_past = state
                 x_past = torch.cat((x_past, x), time_dim)
-                mask_past = torch.cat((mask_past, self.masked_attention.mask_k), time_dim)
+                mask_past = torch.cat(
+                    (mask_past, self.masked_attention.mask_k), time_dim)
                 self.masked_attention.set_mask_k(mask_past)
             x, _ = self.masked_attention(x, x_past, x_past)
             state = (x_past, mask_past)
