@@ -5,7 +5,7 @@ from torch.nn.functional import log_softmax
 from seq2seq.tools import batch_sequences
 from .modules.state import State
 from seq2seq.tools.config import UNK, PAD
-from seq2seq.tools.beam_search import SequenceGenerator
+from seq2seq.tools.beam_search import SequenceGenerator, PermutedSequenceGenerator
 
 
 class Seq2Seq(nn.Module):
@@ -30,18 +30,14 @@ class Seq2Seq(nn.Module):
         else:
             return self.encoder(inputs, hidden)
 
-    def decode(self, inputs, state, get_attention=None, device_ids=None):
+    def decode(self, *kargs, **kwargs):
+        device_ids = kwargs.pop('device_ids', None)
         if isinstance(device_ids, tuple):
-            inputs = (inputs, state, get_attention) if get_attention else (
-                inputs, state)
-            return data_parallel(self.decoder, inputs,
+            return data_parallel(self.decoder, *kargs, **kwargs,
                                  device_ids=device_ids,
                                  dim=0 if self.decoder.batch_first else 1)
         else:
-            if get_attention:
-                return self.decoder(inputs, state, get_attention=get_attention)
-            else:
-                return self.decoder(inputs, state)
+            return self.decoder(*kargs, **kwargs)
 
     def forward(self, input_encoder, input_decoder, encoder_hidden=None, device_ids=None):
         if not isinstance(device_ids, dict):
@@ -54,8 +50,13 @@ class Seq2Seq(nn.Module):
             input_decoder, state, device_ids=device_ids.get('decoder', None))
         return output
 
-    def _decode_step(self, input_list, state_list, k=1,
+    def _decode_step(self, input_list, state_list, args_dict={},
+                     k=1,
                      feed_all_timesteps=False,
+                     keep_all_timesteps=False,
+                     time_offset=0,
+                     time_multiply=1,
+                     apply_lsm=True,
                      remove_unknown=False,
                      get_attention=False,
                      device_ids=None):
@@ -77,22 +78,29 @@ class Seq2Seq(nn.Module):
             inputs = torch.stack(last_tokens).view(*view_shape)
 
         states = State().from_list(state_list)
-        logits, new_states = self.decode(inputs, states,
-                                         get_attention=get_attention,
-                                         device_ids=device_ids)
-        # use only last prediction
-        logits = logits.select(time_dim, -1).contiguous()
+        decode_inputs = dict(get_attention=get_attention,
+                             device_ids=device_ids, **args_dict)
+        if time_multiply > 1:
+            decode_inputs['time_multiply'] = time_multiply
+        logits, new_states = self.decode(inputs, states, **decode_inputs)
+
+        if not keep_all_timesteps:
+            # use only last prediction
+            logits = logits.select(time_dim, -1).contiguous()
         if remove_unknown:
             # Remove possibility of unknown
             logits[:, UNK].fill_(-float('inf'))
-        logprobs = log_softmax(logits, dim=1)
-        logprobs, words = logprobs.topk(k, 1)
+        if apply_lsm:
+            logprobs = log_softmax(logits, dim=-1)
+        else:
+            logprobs = logits
+        logprobs, words = logprobs.topk(k, dim=-1)
         new_states_list = [new_states[i] for i in range(len(input_list))]
         return words, logprobs, new_states_list
 
     def generate(self, input_encoder, input_decoder, beam_size=None,
                  max_sequence_length=None, length_normalization_factor=0,
-                 get_attention=False, device_ids=None):
+                 get_attention=False, device_ids=None, autoregressive=True):
         if not isinstance(device_ids, dict):
             device_ids = {'encoder': device_ids, 'decoder': device_ids}
         context = self.encode(input_encoder,
@@ -100,11 +108,14 @@ class Seq2Seq(nn.Module):
         if hasattr(self, 'bridge'):
             state = self.bridge(context)
         state_list = state.as_list()
-        generator = SequenceGenerator(
-            decode_step=self._decode_step,
-            beam_size=beam_size,
-            max_sequence_length=max_sequence_length,
-            get_attention=get_attention,
-            length_normalization_factor=length_normalization_factor,
-            device_ids=device_ids.get('encoder', None))
+        params = dict(decode_step=self._decode_step,
+                      beam_size=beam_size,
+                      max_sequence_length=max_sequence_length,
+                      get_attention=get_attention,
+                      length_normalization_factor=length_normalization_factor,
+                      device_ids=device_ids.get('encoder', None))
+        if autoregressive:
+            generator = SequenceGenerator(**params)
+        else:
+            generator = PermutedSequenceGenerator(**params)
         return generator.beam_search(input_decoder, state_list)

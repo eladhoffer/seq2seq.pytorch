@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
 import math
+from random import randrange, shuffle
 from copy import deepcopy
 from .seq2seq_base import Seq2Seq
 from seq2seq.tools.config import PAD, EOS
 from .modules.state import State
-from .modules.transformer_blocks import EncoderBlock, DecoderBlock, EncoderBlockPreNorm, DecoderBlockPreNorm, positional_embedding, CharWordEmbedder, PositionalEmbedding
+from .modules.transformer_blocks import EncoderBlock, DecoderBlock, EncoderBlockPreNorm, DecoderBlockPreNorm, positional_embedding, CharWordEmbedder, PositionalEmbedding, MultiHeadAttention
+from .modules.attention import SDPAttention
 
 
 def index_select_2d(x, order):
@@ -16,7 +18,40 @@ def index_select_2d(x, order):
     return x.flatten(0, 1).index_select(0, idxs.contiguous().view(-1)).view(out_sz)
 
 
+@torch.jit.script
+def _reorder(order):
+    # type: (Tensor) -> Tensor
+    B, T = order.shape
+    reorder_list = []
+
+    for j in range(T):
+        reorder_list.append(order.eq(j).nonzero()[:, -1])
+    return torch.stack(reorder_list, dim=-1)
+
+# @torch.jit.script
+
+
+def rand_order(T, block_size=None, block_ratio=0.25, out=None):
+    if block_size is None:
+        block_size = max(int(round(T * block_ratio)), 1)
+    if block_size == 1:
+        return torch.randperm(T, out=out)
+    else:
+        if out is None:
+            out = torch.empty((T,), dtype=torch.long)
+        # torch.arange(T, out=out)
+        order = list(range(T))
+        offset = randrange(T)
+        order = torch.tensor(order[offset:] + order[:offset])
+        order = list(order.split(block_size))
+        shuffle(order)
+        order = torch.cat(order)
+        out.copy_(order)
+    return out
+
+
 def permuted_order(inputs, padding_idx=PAD, eos_idx=EOS, batch_first=True):
+    # type: (Tensor, int, int, bool) -> Tuple[Tensor, Tensor]
     time_dim, batch_dim = (1, 0) if batch_first else (0, 1)
     B, T = inputs.size(batch_dim), inputs.size(time_dim)
     order = torch.arange(-1, T, dtype=torch.long, device=inputs.device)
@@ -24,17 +59,11 @@ def permuted_order(inputs, padding_idx=PAD, eos_idx=EOS, batch_first=True):
     max_time = inputs.ne(padding_idx).sum(time_dim) - 1
     for i in range(B):
         t = int(max_time[i])
-        scope = order[i, 1:t]
-        torch.randperm(t, out=scope)
+        scope = order[i].narrow(0, 1, t)
+        rand_order(t, out=scope)
     order.add_(1)
 
-    reorder = []
-
-    for i in range(B):
-        reorder.append([order[i].tolist().index(j) - 1
-                        for j in range(1, inputs.size(time_dim)+1)])
-    reorder = torch.tensor(reorder, dtype=torch.long,
-                           device=order.device)
+    reorder = _reorder(order.narrow(time_dim, 1, T) - 1)
     if not batch_first:
         order = order.t()
         reorder = reorder.t()
@@ -42,6 +71,7 @@ def permuted_order(inputs, padding_idx=PAD, eos_idx=EOS, batch_first=True):
 
 
 def repeat(x, N, dim=0):
+    # type: (Tensor, int, int) -> Tensor
     if x is None:
         return None
     sz = list(x.shape)
@@ -118,7 +148,7 @@ class TransformerAttentionDecoder(nn.Module):
 
     def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6, num_heads=8,
                  batch_first=True, dropout=0, inner_linear=2048, inner_groups=1, prenormalized=False, stateful=None, state_dim=None,
-                 mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False, embedder=None, classifier=True, permuted=False, learned_condition=False, max_length=512):
+                 mask_symbol=PAD, tie_embedding=True, layer_norm=True, weight_norm=False, embedder=None, classifier=True, permuted=False, learned_condition=False, max_length=512, **kwargs):
 
         super(TransformerAttentionDecoder, self).__init__()
         embedding_size = embedding_size or hidden_size
@@ -134,29 +164,31 @@ class TransformerAttentionDecoder(nn.Module):
         self.dropout = nn.Dropout(dropout, inplace=True)
         self.stateful = stateful
         self.permuted = permuted
+        block_args = dict(hidden_size=hidden_size,
+                          num_heads=num_heads,
+                          inner_linear=inner_linear,
+                          inner_groups=inner_groups,
+                          layer_norm=layer_norm,
+                          weight_norm=weight_norm,
+                          dropout=dropout,
+                          batch_first=batch_first,
+                          stateful=stateful,
+                          state_dim=state_dim)
         if permuted:
             if learned_condition:
                 self.conditioned_pos = nn.Embedding(max_length, embedding_size)
             else:
                 self.conditioned_pos = PositionalEmbedding(embedding_size,
-                                                           min_timescale=1.0e4, max_timescale=1.0e8)
+                                                           min_timescale=1.0e4,
+                                                           max_timescale=1.0e8)
 
         if prenormalized:
             block = DecoderBlockPreNorm
         else:
             block = DecoderBlock
-        self.blocks = nn.ModuleList([block(hidden_size,
-                                           num_heads=num_heads,
-                                           inner_linear=inner_linear,
-                                           inner_groups=inner_groups,
-                                           layer_norm=layer_norm,
-                                           weight_norm=weight_norm,
-                                           dropout=dropout,
-                                           batch_first=batch_first,
-                                           stateful=stateful,
-                                           state_dim=state_dim)
-                                     for _ in range(num_layers)
-                                     ])
+
+        self.blocks = nn.ModuleList([block(**block_args)
+                                     for _ in range(num_layers)])
         if layer_norm and prenormalized:
             self.lnorm = nn.LayerNorm(hidden_size)
 
@@ -204,21 +236,23 @@ class TransformerAttentionDecoder(nn.Module):
         pos_embedding = positional_embedding(x.size(time_dim), x.size(-1), offset=time_step,
                                              device=x.device).unsqueeze(batch_dim)
         x.add_(pos_embedding)
-        x = self.dropout(x)
 
         if self.permuted:
             if self.training:
                 output_order, output_reorder = permuted_order(inputs,
                                                               batch_first=self.batch_first)
-                pos_input = output_order.narrow(time_dim, 0, x.size(time_dim))
                 pos_target = output_order.narrow(time_dim, 1, x.size(time_dim))
+
+                pos_input = output_order.narrow(time_dim, 0, x.size(time_dim))
                 x = index_select_2d(x, pos_input)
+
                 cond_embedding = self.conditioned_pos(pos_target)
+
             else:
-                pos_target = torch.arange(
-                    x.size(time_dim), device=x.device) + 1
-                cond_embedding = self.conditioned_pos(
-                    pos_target).unsqueeze(batch_dim)
+                pos_target = torch.arange(x.size(time_dim) * time_multiply,
+                                          device=x.device) + time_step + 1
+                cond_embedding = self.conditioned_pos(pos_target)\
+                    .unsqueeze(batch_dim)
                 output_reorder = None
 
             if time_multiply > 1:
@@ -232,6 +266,8 @@ class TransformerAttentionDecoder(nn.Module):
                 context.outputs = repeat(
                     context.outputs, time_multiply).flatten(0, 1)
             x = x.add(cond_embedding)
+
+        x = self.dropout(x)
 
         attention_scores = []
         updated_state = []
@@ -249,7 +285,6 @@ class TransformerAttentionDecoder(nn.Module):
 
         if hasattr(self, 'lnorm'):
             x = self.lnorm(x)
-
 
         if output_reorder is not None:
             x = index_select_2d(x, output_reorder)

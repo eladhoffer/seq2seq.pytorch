@@ -69,7 +69,6 @@ def _chunk_tuple(seq_tuple, num_chunks, duplicates=1, batch_first=True):
     return chunks * duplicates
 
 
-
 def _batch_max_tokens(src_tuple, target_tuple, max_tokens, batch_first=True, log=True):
     src, src_length = src_tuple
     target, target_length = target_tuple
@@ -144,7 +143,8 @@ class Seq2SeqTrainer(object):
                  target_forcing='teacher',
                  print_freq=10,
                  eval_freq=1000,
-                 save_freq=1000,
+                 save_freq=600,
+                 save_every_epoch=False,
                  grad_clip=None,
                  embedding_grad_clip=None,
                  max_tokens=None,
@@ -186,6 +186,7 @@ class Seq2SeqTrainer(object):
         self.duplicates = duplicates
         self.print_freq = print_freq
         self.eval_freq = eval_freq
+        self.save_every_epoch = save_every_epoch
         self.perplexity = float('inf')
         self.device_ids = device_ids
         self.avg_loss_time = avg_loss_time
@@ -196,6 +197,7 @@ class Seq2SeqTrainer(object):
             self.model_with_loss = DistributedDataParallel(
                 self.model_with_loss,
                 device_ids=[local_rank],
+                find_unused_parameters=False,
                 output_device=local_rank)
         else:
             if isinstance(self.device_ids, tuple):
@@ -204,8 +206,9 @@ class Seq2SeqTrainer(object):
                                                     dim=0 if self.batch_first else 1)
         self.save_path = save_path
         self.save_freq = save_freq
+        self.save_counter = cycle(range(keep_checkpoints))
+        self.last_save = time.time()
         self.checkpoint_filename = checkpoint_filename
-        self.keep_checkpoints = keep_checkpoints + 1
         results_file = os.path.join(save_path, 'results')
         self.results = ResultsLog(results_file,
                                   params=save_info.get('config', None))
@@ -300,7 +303,6 @@ class Seq2SeqTrainer(object):
 
     def _feed_data(self, data_loader, num_iterations=None, training=True, chunk_batch=1):
         if training:
-            counter = cycle(range(self.keep_checkpoints))
             assert self.optimizer is not None
 
         num_iterations = num_iterations or len(data_loader) - 1
@@ -340,7 +342,7 @@ class Seq2SeqTrainer(object):
                 # measure elapsed time
                 elapsed = time.time() - end
                 meters['batch'].update(elapsed)
-                meters['tokens'].update(num_words / elapsed, num_words)
+                meters['tokens'].update(num_words / elapsed)
 
                 end = time.time()
             except RuntimeError as err:
@@ -352,6 +354,14 @@ class Seq2SeqTrainer(object):
                     raise err
 
             last_iteration = (i == len(data_loader) - 1)
+
+            if training:
+                if (end - self.last_save) > self.save_freq:
+                    self.last_save = end
+                    self.save(identifier=next(self.save_counter))
+                if last_iteration and self.save_every_epoch:
+                    self.save(identifier='epoch_%s' % int(self.epoch))
+
             if i > 0 or last_iteration:
                 if hasattr(self.target_forcing, 'keep_prob'):
                     prob = self.target_forcing.keep_prob
@@ -377,11 +387,15 @@ class Seq2SeqTrainer(object):
                                  data=(src, target))
                     self.stream_meters(meters,
                                        prefix='train' if training else 'eval')
+                    if hasattr(self.model.decoder, 'output_order'):
+                        logging.info(self.model.decoder.output_order[0])
+                        logging.info(self.model.decoder.output_order[1])
+                        logging.info(self.model.decoder.output_order[0][0])
+                        logging.info(self.model.decoder.output_order[1][0])
+                        logging.info(self.model.decoder.output_order[2][0])
                     if training:
                         self.write_stream('lr',
                                           (self.training_steps, self.optimizer.get_lr()[0]))
-                if training and (i % self.save_freq == 0 or last_iteration):
-                    self.save(identifier=next(counter))
 
                 if i % num_iterations == 0 or last_iteration:
                     yield dict([(name, meter.avg) for name, meter in meters.items()])

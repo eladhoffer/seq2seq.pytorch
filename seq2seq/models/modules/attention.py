@@ -129,17 +129,63 @@ class AttentionLayer(nn.Module):
         return context, scores_normalized
 
 
-class SDPAttention(nn.Module):
+class OrderAttention(nn.Module):
     """
     Scaled Dot-Product Attention
     """
 
     def __init__(self, dropout=0, causal=False):
+        super(OrderAttention, self).__init__()
+        self.causal = causal
+        self.dropout = nn.Dropout(dropout)
+        self.mask_q = None
+        self.mask_k = None
+
+    def set_mask_q(self, masked_tq):
+        # applies a mask of b x tq length
+        self.mask_q = masked_tq
+
+    def set_mask_k(self, masked_tk):
+        # applies a mask of b x tk length
+        self.mask_k = masked_tk
+
+    def forward(self, q, k):
+        b_q, t_q, dim_q = list(q.size())
+        b_k, t_k, dim_k = list(k.size())
+        assert(dim_q == dim_k)  # dims should be equal
+        b = b_q
+        qk = torch.bmm(q, k.transpose(1, 2))  # b x t_q x t_k
+        qk = qk / (dim_k ** 0.5)
+        mask = None
+        with torch.no_grad():
+            if self.causal and t_q > 1:
+                causal_mask = q.data.new(t_q, t_k).byte().fill_(1).triu_(1)
+                mask = causal_mask.unsqueeze(0).expand(b, t_q, t_k)
+            if self.mask_k is not None:
+                mask_k = self.mask_k.unsqueeze(1).expand(b, t_q, t_k)
+                mask = mask_k if mask is None else mask | mask_k
+            if self.mask_q is not None:
+                mask_q = self.mask_q.unsqueeze(2).expand(b, t_q, t_k)
+                mask = mask_q if mask is None else mask | mask_q
+        if mask is not None:
+            qk.masked_fill_(mask, float('-inf'))
+
+        return F.softmax(qk, dim=2,
+                         dtype=torch.float32 if qk.dtype == torch.float16 else qk.dtype)
+
+
+class SDPAttention(nn.Module):
+    """
+    Scaled Dot-Product Attention
+    """
+
+    def __init__(self, dropout=0, causal=False, gumbel=False):
         super(SDPAttention, self).__init__()
         self.causal = causal
         self.dropout = nn.Dropout(dropout)
         self.mask_q = None
         self.mask_k = None
+        self.gumbel = gumbel
 
     def set_mask_q(self, masked_tq):
         # applies a mask of b x tq length
@@ -171,10 +217,13 @@ class SDPAttention(nn.Module):
                 mask_q = self.mask_q.unsqueeze(2).expand(b, t_q, t_k)
                 mask = mask_q if mask is None else mask | mask_q
         if mask is not None:
-            qk.masked_fill_(mask, float('-inf'))
+            qk.masked_fill_(mask, -1e12)
 
-        sm_qk = F.softmax(qk, dim=2,
-                          dtype=torch.float32 if qk.dtype == torch.float16 else qk.dtype)
+        if self.gumbel:
+            sm_qk = F.gumbel_softmax(qk, dim=2, hard=True)
+        else:
+            sm_qk = F.softmax(qk, dim=2,
+                              dtype=torch.float32 if qk.dtype == torch.float16 else qk.dtype)
         sm_qk = self.dropout(sm_qk)
         return torch.bmm(sm_qk, v), sm_qk  # b x t_q x dim_v
 
@@ -277,7 +326,6 @@ class MultiHeadAttention(nn.MultiheadAttention):
                 query = query.transpose(0, 1)
         elif key_padding_mask is not None:
             key_padding_mask.t()
-
 
         attn_output, attn_output_weights = super(
             MultiHeadAttention, self).forward(query, key, value, key_padding_mask=key_padding_mask, attn_mask=attn_mask, need_weights=need_weights)

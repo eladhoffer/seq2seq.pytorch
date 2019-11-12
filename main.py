@@ -60,11 +60,11 @@ parser.add_argument('-j', '--workers', default=8, type=int,
                     help='number of data loading workers (default: 8)')
 parser.add_argument('--epochs', default=100, type=int,
                     help='number of total epochs to run')
-parser.add_argument('--start-epoch', default=0, type=int,
+parser.add_argument('--start-epoch', default=None, type=int,
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     help='mini-batch size (default: 32)')
-parser.add_argument('--keep-checkpoints', default=5, type=int,
+parser.add_argument('--keep-checkpoints', default=10, type=int,
                     help='checkpoints to save')
 parser.add_argument('--eval-batch-size', default=None, type=int,
                     help='mini-batch size used for evaluation (default: batch-size)')
@@ -83,11 +83,11 @@ parser.add_argument('--optimization-config',
                     type=str, metavar='OPT',
                     help='optimization regime used')
 parser.add_argument('--print-freq', default=50, type=int,
-                    help='print frequency (default: 50)')
-parser.add_argument('--save-freq', default=1000, type=int,
-                    help='save frequency (default: 1000)')
+                    help='print frequency in iterations(default: 50)')
+parser.add_argument('--save-freq', default=600, type=int,
+                    help='save frequency in seconds(default: 600)')
 parser.add_argument('--eval-freq', default=2500, type=int,
-                    help='evaluation frequency (default: 2500)')
+                    help='evaluation frequency in iterations(default: 2500)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', type=str, metavar='FILE',
@@ -268,7 +268,8 @@ def main(args):
             logging.error("no checkpoint found at '%s'", args.resume)
 
     logging.info('training regime: %s\n', regime)
-    trainer.epoch = args.start_epoch
+    if args.start_epoch:
+        trainer.epoch = args.start_epoch
 
     while trainer.epoch < args.epochs:
         # train for one epoch
